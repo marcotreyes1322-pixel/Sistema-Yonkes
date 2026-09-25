@@ -88,8 +88,19 @@ class Request(Base):
         index=True,
     )
 
+    # The quote the broker picked ("Elegir esta"). Set together with status=CLOSED;
+    # NULL when the request is open or was closed without a winner.
+    # use_alter: requests <-> quotes reference each other.
+    selected_quote_id: Mapped[int | None] = mapped_column(
+        ForeignKey("quotes.id", use_alter=True, name="fk_requests_selected_quote", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     quotes: Mapped[list["Quote"]] = relationship(
-        back_populates="request", cascade="all, delete-orphan", order_by="Quote.price"
+        back_populates="request",
+        cascade="all, delete-orphan",
+        order_by="Quote.price",
+        foreign_keys="Quote.request_id",
     )
 
 
@@ -107,5 +118,5 @@ class Quote(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-    request: Mapped[Request] = relationship(back_populates="quotes")
+    request: Mapped[Request] = relationship(back_populates="quotes", foreign_keys=[request_id])
     yonke: Mapped[Yonke] = relationship(back_populates="quotes")

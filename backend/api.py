@@ -17,7 +17,7 @@ from .config import BROKER_TOKEN
 from .database import get_db
 from .models import RequestStatus, SubscriptionStatus, Yonke
 from .realtime import manager
-from .schemas import PaymentIn, RequestCreate, YonkeCreate, YonkeUpdate
+from .schemas import PaymentIn, QuoteSelect, RequestCreate, YonkeCreate, YonkeUpdate
 from .services import (
     DomainError,
     add_months,
@@ -27,6 +27,7 @@ from .services import (
     hash_token,
     list_requests,
     request_to_dict,
+    select_quote,
     today,
     yonke_to_dict,
 )
@@ -163,6 +164,17 @@ async def post_request(data: RequestCreate, db: Session = Depends(get_db)) -> di
     req = create_request(db, data)
     delivered = await events.publish_request_created(req)
     return {"request": request_to_dict(req), "delivered_to": delivered}
+
+
+@router.post("/requests/{request_id}/select")
+async def post_select_quote(request_id: int, data: QuoteSelect, db: Session = Depends(get_db)) -> dict:
+    """Pick the winning quote: closes the request and notifies every yonke."""
+    try:
+        req, quote = select_quote(db, request_id, data.quote_id)
+    except DomainError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    await events.publish_request_closed(req, winner=quote)
+    return request_to_dict(req)
 
 
 @router.post("/requests/{request_id}/close")

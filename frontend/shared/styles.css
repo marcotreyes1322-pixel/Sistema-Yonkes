@@ -207,6 +207,20 @@ button.block { width: 100%; }
 }
 .card.leaving { transition: opacity 0.4s, transform 0.4s; opacity: 0; transform: scale(0.97); }
 
+.card.won, .card.won.fresh { border: 2px solid var(--ok); background: rgb(22 163 74 / 0.08); }
+.won-msg {
+  background: var(--ok);
+  color: #fff;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 1.05rem;
+}
+.card.gone { border-style: dashed; opacity: 0.85; }
+.card.gone .req-title { text-decoration: line-through; color: var(--muted); }
+.gone-msg { margin: 0; font-weight: 600; color: var(--warn); }
+.quote.selected { background: rgb(22 163 74 / 0.1); border-radius: 10px; padding: 10px; border-top-color: transparent; }
+.quote .pick { grid-column: 1 / -1; justify-self: end; }
+
 .my-quote {
   background: rgb(22 163 74 / 0.1);
   border: 1px solid rgb(22 163 74 / 0.35);

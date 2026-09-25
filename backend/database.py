@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import Connection, create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import DATA_DIR, DATABASE_URL
@@ -41,7 +41,24 @@ def get_db() -> Iterator[Session]:
         yield db
 
 
+def migrate(conn: Connection) -> None:
+    """Bring databases created by older versions up to date (create_all only adds tables).
+
+    Idempotent: each step checks the current schema first. Works on SQLite and PostgreSQL.
+    """
+    columns = {c["name"] for c in inspect(conn).get_columns("requests")}
+    if "selected_quote_id" not in columns:
+        conn.execute(
+            text(
+                "ALTER TABLE requests ADD COLUMN selected_quote_id INTEGER "
+                "CONSTRAINT fk_requests_selected_quote REFERENCES quotes(id) ON DELETE SET NULL"
+            )
+        )
+
+
 def init_db() -> None:
     from . import models  # noqa: F401  (registers tables on Base.metadata)
 
     Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        migrate(conn)

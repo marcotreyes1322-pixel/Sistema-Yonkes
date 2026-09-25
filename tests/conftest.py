@@ -11,6 +11,7 @@ os.environ["WS_AUTH_TIMEOUT"] = "2"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 
 from backend.database import Base, engine  # noqa: E402
 from backend.main import app  # noqa: E402
@@ -18,9 +19,18 @@ from backend.main import app  # noqa: E402
 BROKER = {"Authorization": "Bearer test-broker-token"}
 
 
+def _reset_database():
+    if engine.dialect.name == "postgresql":
+        # Also wipes tables left by older schema versions, which drop_all can't handle.
+        with engine.begin() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+    else:
+        Base.metadata.drop_all(engine)
+
+
 @pytest.fixture()
 def client():
-    Base.metadata.drop_all(engine)
+    _reset_database()
     with TestClient(app) as c:  # runs lifespan -> init_db()
         yield c
 

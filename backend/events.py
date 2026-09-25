@@ -7,7 +7,7 @@ the database, so every screen stays in sync no matter where a change came from.
 from sqlalchemy import select
 
 from .database import SessionLocal
-from .models import Request, Yonke
+from .models import Quote, Request, Yonke
 from .realtime import CLOSE_NO_SUBSCRIPTION, CLOSE_UNAUTHORIZED, manager
 from .services import quote_to_dict, request_to_dict, today, yonke_to_dict
 
@@ -58,8 +58,28 @@ async def publish_request_created(req: Request, *, ref: str | None = None) -> in
     return len(reached)
 
 
-async def publish_request_closed(req: Request) -> None:
-    await manager.broadcast_to_yonkes({"type": "request.closed", "request_id": req.id}, manager.online_yonke_ids())
+async def publish_request_closed(req: Request, winner: Quote | None = None) -> None:
+    """Take the request off every yonke's screen.
+
+    With a winner, that yonke is told to set the part aside and everyone else is
+    told it was already found, so nobody keeps searching the yard for nothing.
+    """
+    others = [yid for yid in manager.online_yonke_ids() if winner is None or yid != winner.yonke_id]
+    await manager.broadcast_to_yonkes(
+        {"type": "request.closed", "request_id": req.id, "reason": "selected" if winner else "closed"}, others
+    )
+    if winner is not None:
+        await manager.send_to_yonke(
+            winner.yonke_id,
+            {
+                "type": "request.won",
+                "request": {
+                    **request_to_dict(req),
+                    "my_quote": quote_to_dict(winner, include_yonke=False),
+                    "won": True,
+                },
+            },
+        )
     await manager.send_to_brokers({"type": "request.updated", "request": request_to_dict(req)})
 
 

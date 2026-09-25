@@ -87,7 +87,8 @@ Pruebas: `pytest`
 | PostgreSQL | Se conecta con `DATABASE_URL` (usa la *Internal Database URL*; el código acepta `postgres://` y `postgresql://`) |
 | Variables | `DATABASE_URL`, `BROKER_TOKEN`, `APP_TZ` |
 
-Las tablas se crean solas al arrancar. **No uses SQLite en Render**: el disco del servicio
+Las tablas se crean solas al arrancar, y `backend/database.py:migrate` agrega las columnas
+nuevas a bases creadas por versiones anteriores (sin perder datos). **No uses SQLite en Render**: el disco del servicio
 se borra en cada deploy o reinicio.
 
 Plan **Free**: el servicio se duerme tras 15 min sin tráfico (tarda ~1 min en despertar) y
@@ -124,9 +125,10 @@ respuesta o error.
 
 | Dirección | `type` | Contenido |
 |---|---|---|
-| ← | `hello` | `yonke`, `requests` abiertas (cada una con `my_quote`) |
+| ← | `hello` | `yonke`, `requests` abiertas (cada una con `my_quote`) + las que ganó en los últimos 3 días (`won: true`) |
 | ← | `request.new` | `request` |
-| ← | `request.closed` | `request_id` |
+| ← | `request.closed` | `request_id`, `reason`: `selected` (se consiguió con otro yonke: ya no buscarla) o `closed` |
+| ← | `request.won` | `request` con `won: true` y `my_quote`: el intermediario eligió **su** pieza, que la aparte |
 | → | `quote.submit` | `request_id`, `condition` (`good`/`regular`/`bad`), `price`, `notes?` |
 | ← | `quote.saved` | `quote` (se reenvía a todos los dispositivos del yonke) |
 | ← | `access_denied` | `reason` (`token`/`subscription`), `message` — antes de cerrar |
@@ -142,6 +144,7 @@ cotizar la misma solicitud actualiza su cotización (una por yonke por solicitud
 | → | `request.create` | `vehicle_model`, `part_name` |
 | ← | `request.created` | `request`, `delivered_to` (yonkes que la recibieron) |
 | → | `request.close` | `request_id` |
+| → | `request.select` | `request_id`, `quote_id`: elige la cotización ganadora y cierra la solicitud |
 | ← | `request.updated` | `request` |
 | ← | `quote.new` / `quote.updated` | `quote` con datos del yonke |
 | ← | `presence` | `online`: ids de yonkes conectados |
@@ -160,7 +163,8 @@ Todas requieren `Authorization: Bearer <BROKER_TOKEN>`. Documentación interacti
 | POST | `/api/yonkes/{id}/token` | Generar código nuevo (revoca el anterior) |
 | GET | `/api/requests?status=open` | Historial con cotizaciones |
 | POST | `/api/requests` | Crear y transmitir (igual que por WebSocket; útil para bots) |
-| POST | `/api/requests/{id}/close` | Cerrar solicitud |
+| POST | `/api/requests/{id}/select` | Elegir cotización ganadora (`quote_id`): avisa al ganador y libera a los demás |
+| POST | `/api/requests/{id}/close` | Cerrar solicitud sin ganador |
 
 ## Decisiones de diseño
 

@@ -27,6 +27,10 @@ class QuoteSubmit(_Strict):
     notes: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
 
 
+class QuoteSelect(_Strict):
+    quote_id: int
+
+
 class YonkeCreate(_Strict):
     name: Name
     phone: Phone

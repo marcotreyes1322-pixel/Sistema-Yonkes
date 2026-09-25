@@ -36,7 +36,7 @@ from .config import FRONTEND_DIR, SUBSCRIPTION_SWEEP_SECONDS, WS_AUTH_TIMEOUT
 from .database import SessionLocal, init_db
 from .models import Yonke
 from .realtime import CLOSE_NO_SUBSCRIPTION, CLOSE_UNAUTHORIZED, Client, manager
-from .schemas import QuoteSubmit, RequestCreate
+from .schemas import QuoteSelect, QuoteSubmit, RequestCreate
 from .services import (
     DomainError,
     close_request,
@@ -46,6 +46,7 @@ from .services import (
     open_requests_for_yonke,
     quote_to_dict,
     request_to_dict,
+    select_quote,
     submit_quote,
     today,
     yonke_to_dict,
@@ -310,6 +311,14 @@ async def broker_socket(ws: WebSocket) -> None:
             with SessionLocal() as db:
                 req = close_request(db, request_id)
             await events.publish_request_closed(req)
+        elif msg["type"] == "request.select":
+            request_id = msg.get("request_id")
+            if not isinstance(request_id, int):
+                raise DomainError("Falta request_id")
+            data = QuoteSelect.model_validate(msg)
+            with SessionLocal() as db:
+                req, quote = select_quote(db, request_id, data.quote_id)
+                await events.publish_request_closed(req, winner=quote)
         else:
             raise DomainError(f"Tipo de mensaje desconocido: {msg['type']}")
 

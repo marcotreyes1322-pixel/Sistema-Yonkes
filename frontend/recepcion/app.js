@@ -19,6 +19,7 @@ import {
 } from "/shared/live.js";
 
 const TOKEN_KEY = "yonke.token";
+const DISMISSED_KEY = "yonke.dismissedWon"; // won requests the yonke already acknowledged
 const $ = (id) => document.getElementById(id);
 
 const state = {
@@ -96,7 +97,9 @@ async function unlockAlerts() {
   if (await enableAlerts()) $("alerts-banner").hidden = true;
 }
 $("enable-alerts").addEventListener("click", unlockAlerts);
-document.addEventListener("pointerdown", unlockAlerts, { once: true });
+// "click" on document runs after the tapped button's own handler, so hiding the
+// banner can't shift the layout under the finger and swallow that first tap.
+document.addEventListener("click", unlockAlerts, { once: true });
 
 // --- server messages --------------------------------------------------------
 
@@ -110,7 +113,15 @@ function handleMessage(msg) {
       renderExpiry(msg.yonke.payment_due_date);
       clearRequests();
       // Server sends newest first; insert oldest first so newest ends on top.
-      for (const r of [...msg.requests].reverse()) upsertRequest(r);
+      for (const r of [...msg.requests].reverse()) if (!(r.won && dismissedWon().includes(r.id))) upsertRequest(r);
+      break;
+
+    case "request.won":
+      upsertRequest(msg.request, { fresh: true });
+      beep(4);
+      notify("¡Eligieron tu pieza!", `${msg.request.part_name} · ${msg.request.vehicle_model} — apártala`, {
+        tag: `won-${msg.request.id}`,
+      });
       break;
 
     case "request.new":
@@ -126,7 +137,8 @@ function handleMessage(msg) {
       break;
 
     case "request.closed":
-      removeRequest(msg.request_id);
+      if (msg.reason === "selected") showFoundElsewhere(msg.request_id);
+      else removeRequest(msg.request_id);
       break;
 
     case "quote.saved": {
@@ -181,6 +193,37 @@ function removeRequest(id) {
   updateEmpty();
 }
 
+/** Another yonke's part was picked: tell this one to stop searching, then drop the card. */
+function showFoundElsewhere(id) {
+  const req = state.requests.get(id);
+  const old = state.cards.get(id);
+  if (!req || !old) return removeRequest(id);
+  state.requests.delete(id);
+  state.cards.delete(id);
+  state.editing.delete(id);
+  const card = h(
+    "article.card.stack.gone",
+    { role: "status" },
+    h("div.req-title", req.part_name),
+    h("p.req-vehicle", req.vehicle_model),
+    h("p.gone-msg", "Ya se consiguió con otro yonke. Ya no la busques 👍"),
+  );
+  old.replaceWith(card);
+  updateEmpty();
+  setTimeout(() => {
+    card.classList.add("leaving");
+    setTimeout(() => card.remove(), 400);
+  }, 8000);
+}
+
+function dismissedWon() {
+  try {
+    return JSON.parse(store(DISMISSED_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
 function clearRequests() {
   state.requests.clear();
   state.cards.clear();
@@ -203,8 +246,9 @@ function renderCard(req) {
       h("div.grow", h("h2.req-title", req.part_name), h("p.req-vehicle", req.vehicle_model)),
       h("span.badge", { dataset: { ts: req.timestamp } }, timeAgo(req.timestamp)),
     ),
-    req.my_quote && !state.editing.has(req.id) ? myQuoteView(req) : quoteForm(req),
+    req.won ? wonView(req) : req.my_quote && !state.editing.has(req.id) ? myQuoteView(req) : quoteForm(req),
   );
+  if (req.won) card.classList.add("won");
   const old = state.cards.get(req.id);
   if (old) {
     if (old.classList.contains("fresh")) card.classList.add("fresh");
@@ -212,6 +256,31 @@ function renderCard(req) {
   }
   state.cards.set(req.id, card);
   return card;
+}
+
+function wonView(req) {
+  const q = req.my_quote;
+  return h(
+    "div.stack",
+    h(
+      "div.won-msg",
+      h("strong", "✅ ¡Eligieron tu pieza!"),
+      h("div", "Apártala: el intermediario te va a contactar para recogerla."),
+    ),
+    q && h("div.small", `Tu cotización: ${money(q.price)} · ${CONDITIONS[q.condition]}${q.notes ? ` · ${q.notes}` : ""}`),
+    h(
+      "button.secondary.block",
+      {
+        type: "button",
+        onclick: () => {
+          const ids = dismissedWon().filter((x) => x !== req.id).slice(-50);
+          store(DISMISSED_KEY, JSON.stringify([...ids, req.id]));
+          removeRequest(req.id);
+        },
+      },
+      "Entendido, ya la aparté",
+    ),
+  );
 }
 
 function myQuoteView(req) {

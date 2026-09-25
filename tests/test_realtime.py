@@ -256,3 +256,92 @@ def test_render_requires_persistent_config():
     code = "import backend.config as c; print(c.DATABASE_URL)"
     run = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
     assert run.returncode == 0 and run.stdout.strip() == "postgresql+psycopg://u:p@host/db"
+
+
+def test_select_quote_notifies_winner_and_frees_the_others(client, make_yonke):
+    y1, y2, y3 = make_yonke("Uno"), make_yonke("Dos", "6620000002"), make_yonke("Tres", "6620000003")
+    with (
+        connect(client, "broker", "test-broker-token") as broker,
+        connect(client, "yonke", y1["access_token"]) as ws1,
+        connect(client, "yonke", y2["access_token"]) as ws2,
+        connect(client, "yonke", y3["access_token"]) as ws3,  # searching, hasn't quoted yet
+    ):
+        for ws in (broker, ws1, ws2, ws3):
+            ws.receive_json()
+        broker.send_json({"type": "request.create", "vehicle_model": "Tsuru 2012", "part_name": "Alternador"})
+        req_id = recv_until(broker, "request.created")["request"]["id"]
+        for ws, price in ((ws1, 1500), (ws2, 1100)):
+            recv_until(ws, "request.new")
+            ws.send_json({"type": "quote.submit", "request_id": req_id, "condition": "good", "price": price})
+            recv_until(ws, "quote.saved")
+        recv_until(ws3, "request.new")
+        recv_until(broker, "quote.new")
+        winner = recv_until(broker, "quote.new")["quote"]
+        assert winner["yonke"]["name"] == "Dos"
+
+        r = client.post(f"/api/requests/{req_id}/select", json={"quote_id": winner["id"]}, headers=BROKER)
+        assert r.status_code == 200 and r.json()["status"] == "closed"
+        assert r.json()["selected_quote_id"] == winner["id"]
+
+        won = recv_until(ws2, "request.won")["request"]
+        assert won["id"] == req_id and won["won"] is True and won["my_quote"]["price"] == 1100
+        for ws in (ws1, ws3):  # the loser and the one still searching both stop
+            closed = recv_until(ws, "request.closed")
+            assert closed == {"type": "request.closed", "request_id": req_id, "reason": "selected"}
+        assert recv_until(broker, "request.updated")["request"]["selected_quote_id"] == winner["id"]
+
+        # Can't pick again, and nobody can quote on it any more.
+        again = client.post(f"/api/requests/{req_id}/select", json={"quote_id": winner["id"]}, headers=BROKER)
+        assert again.status_code == 409
+        ws1.send_json({"type": "quote.submit", "ref": "x", "request_id": req_id, "condition": "good", "price": 900})
+        assert "cerrada" in recv_until(ws1, "error")["message"]
+
+    # The winner still sees it after reconnecting (e.g. it was offline); the others don't.
+    with connect(client, "yonke", y2["access_token"]) as ws:
+        [card] = ws.receive_json()["requests"]
+        assert card["id"] == req_id and card["won"] is True
+    with connect(client, "yonke", y1["access_token"]) as ws:
+        assert ws.receive_json()["requests"] == []
+
+
+def test_select_quote_validation_and_plain_close_reason(client, make_yonke):
+    y = make_yonke()
+    r1 = client.post("/api/requests", json={"vehicle_model": "Aveo", "part_name": "Puerta"}, headers=BROKER).json()
+    r2 = client.post("/api/requests", json={"vehicle_model": "Jetta", "part_name": "Faro"}, headers=BROKER).json()
+    with connect(client, "yonke", y["access_token"]) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "quote.submit", "request_id": r1["request"]["id"], "condition": "good", "price": 800})
+        quote_id = recv_until(ws, "quote.saved")["quote"]["id"]
+
+        # A quote from another request can't be picked.
+        bad = client.post(f"/api/requests/{r2['request']['id']}/select", json={"quote_id": quote_id}, headers=BROKER)
+        assert bad.status_code == 409 and "no pertenece" in bad.json()["detail"]
+
+        # Closing without a winner tells yonkes it was simply closed.
+        client.post(f"/api/requests/{r2['request']['id']}/close", headers=BROKER)
+        assert recv_until(ws, "request.closed")["reason"] == "closed"
+
+    # Same action over the broker WebSocket.
+    with connect(client, "broker", "test-broker-token") as broker:
+        broker.receive_json()
+        broker.send_json({"type": "request.select", "request_id": r1["request"]["id"], "quote_id": quote_id})
+        assert recv_until(broker, "request.updated")["request"]["selected_quote_id"] == quote_id
+
+
+def test_migration_adds_selected_quote_column_to_old_databases(tmp_path):
+    """Databases created before "Elegir esta" existed get the new column on startup."""
+    from sqlalchemy import create_engine, inspect, text
+
+    from backend.database import migrate
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE requests (id INTEGER PRIMARY KEY, part_name VARCHAR(160))"))
+        conn.execute(text("CREATE TABLE quotes (id INTEGER PRIMARY KEY, request_id INTEGER)"))
+        conn.execute(text("INSERT INTO requests (id, part_name) VALUES (1, 'Alternador')"))
+    for _ in range(2):  # idempotent
+        with engine.begin() as conn:
+            migrate(conn)
+    with engine.connect() as conn:
+        assert "selected_quote_id" in {c["name"] for c in inspect(conn).get_columns("requests")}
+        assert conn.execute(text("SELECT part_name, selected_quote_id FROM requests")).one() == ("Alternador", None)

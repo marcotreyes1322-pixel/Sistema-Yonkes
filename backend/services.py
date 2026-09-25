@@ -4,13 +4,13 @@ import calendar
 import hashlib
 import re
 import secrets
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 from .config import APP_TZ
-from .models import Quote, Request, RequestStatus, Yonke
+from .models import Quote, Request, RequestStatus, Yonke, utcnow
 from .schemas import QuoteSubmit, RequestCreate
 
 # No I/O/0/1 so tokens can be read aloud and typed on a phone without mistakes.
@@ -101,6 +101,7 @@ def request_to_dict(r: Request, *, with_quotes: bool = False) -> dict:
         "part_name": r.part_name,
         "timestamp": iso(r.timestamp),
         "status": r.status.value,
+        "selected_quote_id": r.selected_quote_id,
     }
     if with_quotes:
         d["quotes"] = [quote_to_dict(q) for q in r.quotes]
@@ -124,6 +125,28 @@ def close_request(db: Session, request_id: int) -> Request:
     req.status = RequestStatus.CLOSED
     db.commit()
     return req
+
+
+def select_quote(db: Session, request_id: int, quote_id: int) -> tuple[Request, Quote]:
+    """The broker picks the winning quote: the request closes with that winner."""
+    req = db.get(Request, request_id)
+    if req is None:
+        raise DomainError("La solicitud no existe")
+    quote = db.get(Quote, quote_id)
+    if quote is None or quote.request_id != req.id:
+        raise DomainError("Esa cotización no pertenece a esta solicitud")
+    # Conditional UPDATE: if two screens pick at the same time, only one wins.
+    result = db.execute(
+        update(Request)
+        .where(Request.id == req.id, Request.status == RequestStatus.OPEN)
+        .values(status=RequestStatus.CLOSED, selected_quote_id=quote.id)
+    )
+    if result.rowcount == 0:
+        db.rollback()
+        raise DomainError("La solicitud ya fue cerrada")
+    db.commit()
+    db.refresh(req)
+    return req, quote
 
 
 def submit_quote(db: Session, yonke: Yonke, data: QuoteSubmit) -> tuple[Quote, bool]:
@@ -159,13 +182,28 @@ def list_requests(db: Session, *, status: RequestStatus | None = None, limit: in
     return list(db.scalars(stmt))
 
 
+WON_VISIBLE_FOR = timedelta(days=3)
+
+
 def open_requests_for_yonke(db: Session, yonke: Yonke, limit: int = 50) -> list[dict]:
-    """Open requests plus this yonke's own quote on each (if any)."""
+    """Open requests plus this yonke's own quote on each (if any).
+
+    Also includes recent requests this yonke *won*, so a yonke that was offline
+    when the broker picked its part still finds out it must set the part aside.
+    """
     reqs = list_requests(db, status=RequestStatus.OPEN, limit=limit)
+    won = db.scalars(
+        select(Request)
+        .join(Quote, Request.selected_quote_id == Quote.id)
+        .where(Quote.yonke_id == yonke.id, Request.timestamp >= utcnow() - WON_VISIBLE_FOR)
+        .options(selectinload(Request.quotes))
+        .order_by(Request.timestamp.desc())
+    ).all()
     out = []
-    for r in reqs:
+    for r in sorted([*reqs, *won], key=lambda r: (iso(r.timestamp), r.id), reverse=True):
         d = request_to_dict(r)
         mine = next((q for q in r.quotes if q.yonke_id == yonke.id), None)
         d["my_quote"] = quote_to_dict(mine, include_yonke=False) if mine else None
+        d["won"] = r.selected_quote_id is not None and mine is not None and mine.id == r.selected_quote_id
         out.append(d)
     return out

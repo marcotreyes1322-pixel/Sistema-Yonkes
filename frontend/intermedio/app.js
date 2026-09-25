@@ -213,26 +213,31 @@ $("show-closed").addEventListener("change", (e) => {
 function renderRequests() {
   renderOnline();
   const list = [...state.requests.values()]
-    .filter((r) => state.showClosed || r.status === "open")
+    .filter((r) => state.showClosed || r.status === "open" || recentlyFound(r))
     .sort((a, b) => (a.status === b.status ? b.timestamp.localeCompare(a.timestamp) : a.status === "open" ? -1 : 1));
   $("requests").replaceChildren(...list.map(requestCard));
   $("requests-empty").hidden = list.length > 0;
 }
 
+// Found parts stay on the main list for a day so the broker can follow up with the winner.
+const recentlyFound = (r) => r.selected_quote_id != null && Date.now() - new Date(r.timestamp) < 86400000;
+
 function requestCard(r) {
   const open = r.status === "open";
-  const quotes = r.quotes || [];
+  const found = r.selected_quote_id != null;
+  // Winner first, then by price.
+  const quotes = [...(r.quotes || [])].sort((a, b) => (b.id === r.selected_quote_id) - (a.id === r.selected_quote_id));
   return h(
     "article.card",
-    { style: open ? null : "opacity: .65" },
+    { style: open || found ? null : "opacity: .65" },
     h(
       "div.row",
       h("div.grow", h("h3.req-title", r.part_name), h("p.req-vehicle", r.vehicle_model)),
       h("span.badge", { dataset: { ts: r.timestamp } }, timeAgo(r.timestamp)),
-      h(open ? "span.badge.ok" : "span.badge", open ? "Abierta" : "Cerrada"),
+      open ? h("span.badge.ok", "Abierta") : found ? h("span.badge.ok", "✔ Conseguida") : h("span.badge", "Cerrada"),
     ),
     quotes.length
-      ? h("div", { style: "margin-top: 8px" }, quotes.map((q, i) => quoteRow(r, q, i === 0)))
+      ? h("div", { style: "margin-top: 8px" }, quotes.map((q, i) => quoteRow(r, q, open && i === 0)))
       : h(
           "p.muted.small",
           open ? `Esperando cotizaciones… (${state.online.size} yonkes en línea)` : "Sin cotizaciones.",
@@ -261,14 +266,18 @@ function requestCard(r) {
 
 function quoteRow(r, q, best) {
   const wa = whatsappUrl(q.yonke.phone, `Hola ${q.yonke.name}, sobre tu cotización de ${r.part_name} (${r.vehicle_model}) por ${money(q.price)}: `);
+  const selected = q.id === r.selected_quote_id;
+  const loser = r.selected_quote_id != null && !selected;
   return h(
-    `div.quote${best && r.quotes.length > 1 ? ".best" : ""}`,
+    `div.quote${best && r.quotes.length > 1 ? ".best" : ""}${selected ? ".selected" : ""}`,
+    { style: loser ? "opacity: .55" : null },
     h(
       "div",
       h("strong", q.yonke.name),
       " ",
       h(`span.badge.${q.condition === "good" ? "ok" : q.condition === "regular" ? "warn" : "danger"}`, CONDITIONS[q.condition]),
       best && r.quotes.length > 1 ? h("span.badge.ok", { style: "margin-left: 4px" }, "Mejor precio") : null,
+      selected ? h("span.badge.new", { style: "margin-left: 4px" }, "✔ Elegida") : null,
     ),
     h("div.price", money(q.price)),
     h(
@@ -279,7 +288,24 @@ function quoteRow(r, q, best) {
       h("a", { href: wa, target: "_blank", rel: "noopener" }, "WhatsApp"),
     ),
     h("div.small.muted", { style: "text-align: right" }, timeAgo(q.created_at)),
+    r.status === "open" && h("button.sm.pick", { type: "button", onclick: () => selectQuote(r, q) }, "Elegir esta"),
   );
+}
+
+async function selectQuote(r, q) {
+  const question =
+    `¿Elegir la pieza de ${q.yonke.name} por ${money(q.price)}?\n\n` +
+    `Se cierra la solicitud: a ${q.yonke.name} le avisamos que la aparte y a los demás yonkes que ya no la busquen.`;
+  if (!confirm(question)) return;
+  try {
+    const updated = await api("POST", `/api/requests/${r.id}/select`, { quote_id: q.id });
+    const req = state.requests.get(r.id);
+    state.requests.set(r.id, { ...req, ...updated, quotes: req?.quotes || [] });
+    renderRequests();
+    toast(`Listo: elegiste a ${q.yonke.name}. Ya avisamos a los demás yonkes.`, "ok");
+  } catch (err) {
+    toast(err.message, "error");
+  }
 }
 
 function whatsappUrl(phone, text) {
