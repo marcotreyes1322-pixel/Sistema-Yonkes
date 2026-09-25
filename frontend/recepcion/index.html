@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Yonke · Solicitudes</title>
+  <meta name="description" content="Recibe solicitudes de piezas en tiempo real y envía tu cotización.">
+  <meta name="theme-color" content="#ea580c">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="/shared/icons/recepcion-192.png">
+  <link rel="apple-touch-icon" href="/shared/icons/recepcion-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Yonke">
+  <link rel="stylesheet" href="/shared/styles.css">
+</head>
+<body data-app="recepcion">
+  <header class="topbar">
+    <h1 id="title">Solicitudes de piezas</h1>
+    <button id="install" class="ghost" hidden>Instalar</button>
+    <span id="status" class="status" data-state="offline">Sin conexión</span>
+  </header>
+
+  <!-- 1. Activation: typed once, when the broker installs the app -->
+  <main id="login" hidden>
+    <div class="screen-center">
+      <form id="login-form" class="card stack" style="width: min(420px, 100%)">
+        <h2 style="margin: 0">Activar este dispositivo</h2>
+        <p class="muted" style="margin: 0">Escribe el código de acceso que te dio el intermediario.</p>
+        <div>
+          <label for="token">Código de acceso</label>
+          <input id="token" class="token-input" autocomplete="off" autocapitalize="characters"
+                 spellcheck="false" placeholder="XXXX-XXXX-XXXX" required>
+        </div>
+        <button class="block" type="submit">Entrar</button>
+        <p id="login-error" class="banner danger" hidden></p>
+      </form>
+    </div>
+  </main>
+
+  <!-- 2. Live feed of part requests -->
+  <main id="feed" hidden>
+    <div id="denied" class="banner danger" hidden></div>
+    <div id="expiry" class="banner warn" hidden></div>
+    <div id="alerts-banner" class="banner info row" hidden>
+      <span class="grow">Activa el sonido para enterarte al instante de cada solicitud.</span>
+      <button id="enable-alerts" class="sm">Activar alertas</button>
+    </div>
+    <div id="requests"></div>
+    <p id="empty" class="empty" hidden>
+      No hay solicitudes abiertas.<br>Deja la app abierta: las nuevas aparecen aquí al instante.
+    </p>
+    <p class="center small muted">
+      <span id="whoami"></span> ·
+      <a href="#" id="logout" class="muted">Cambiar código</a>
+    </p>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

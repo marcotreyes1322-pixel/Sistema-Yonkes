@@ -1,0 +1,17 @@
+{
+  "id": "/intermedio/",
+  "name": "Intermediario · Panel de piezas",
+  "short_name": "Intermediario",
+  "description": "Envía solicitudes de piezas a los yonkes y administra suscripciones.",
+  "lang": "es-MX",
+  "start_url": "/intermedio/",
+  "scope": "/intermedio/",
+  "display": "standalone",
+  "background_color": "#f4f4f5",
+  "theme_color": "#1d4ed8",
+  "icons": [
+    { "src": "/shared/icons/intermedio-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/shared/icons/intermedio-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/shared/icons/intermedio-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
