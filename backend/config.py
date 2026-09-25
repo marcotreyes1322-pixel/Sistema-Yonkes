@@ -24,7 +24,7 @@ if os.getenv("RENDER"):
     if _missing:
         raise RuntimeError(
             f"Falta configurar {', '.join(_missing)} en Render (Environment). "
-            "Sin ellas los datos se borrarían en cada reinicio."
+            "Sin esto, los datos se borrarían en cada reinicio."
         )
 
 
