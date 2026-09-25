@@ -4,7 +4,8 @@ import tempfile
 # Configure before the backend is imported: isolated DB, known broker token.
 _tmp = tempfile.mkdtemp(prefix="yonkes-test-")
 os.environ["DATA_DIR"] = _tmp
-os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
+# Set TEST_DATABASE_URL=postgresql://... to run the suite against PostgreSQL.
+os.environ["DATABASE_URL"] = os.getenv("TEST_DATABASE_URL", f"sqlite:///{_tmp}/test.db")
 os.environ["BROKER_TOKEN"] = "test-broker-token"
 os.environ["WS_AUTH_TIMEOUT"] = "2"
 

@@ -79,6 +79,23 @@ Pruebas: `pytest`
 > Las PWAs y los service workers **requieren HTTPS** (excepto en `localhost`).
 > En producción sirve la app detrás de HTTPS (Render, Railway, Fly.io, o Nginx + Let's Encrypt).
 
+## Despliegue en Render
+
+| Recurso | Configuración |
+|---|---|
+| Web Service (Python) | Build: `pip install -r requirements.txt` · Start: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"` · 1 instancia |
+| PostgreSQL | Se conecta con `DATABASE_URL` (usa la *Internal Database URL*; el código acepta `postgres://` y `postgresql://`) |
+| Variables | `DATABASE_URL`, `BROKER_TOKEN`, `APP_TZ` |
+
+Las tablas se crean solas al arrancar. **No uses SQLite en Render**: el disco del servicio
+se borra en cada deploy o reinicio.
+
+Plan **Free**: el servicio se duerme tras 15 min sin tráfico (tarda ~1 min en despertar) y
+la base Free vence a los 30 días de creada. Antes de cobrar a los yonkes, cambia el servicio
+a **Starter** y la base a **Basic** desde el dashboard (se conservan los datos).
+
+Pruebas contra PostgreSQL local: `TEST_DATABASE_URL=postgresql://user@host/db pytest`
+
 ## Suscripciones
 
 - Un yonke tiene acceso si `subscription_status = active` **y** `payment_due_date >= hoy`.

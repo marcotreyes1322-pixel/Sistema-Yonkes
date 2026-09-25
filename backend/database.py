@@ -13,6 +13,9 @@ engine = create_engine(
     DATABASE_URL,
     # SQLite connections are used from FastAPI's threadpool and the event loop.
     connect_args={"check_same_thread": False} if _is_sqlite else {},
+    # Hosted Postgres drops idle connections; test each one before handing it out.
+    pool_pre_ping=not _is_sqlite,
+    pool_recycle=300 if not _is_sqlite else -1,
 )
 
 if _is_sqlite:

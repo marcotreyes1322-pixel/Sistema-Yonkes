@@ -16,8 +16,23 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", ROOT_DIR / "data"))
 FRONTEND_DIR = ROOT_DIR / "frontend"
 
-# SQLite for now; swap for e.g. postgresql+psycopg://user:pass@host/db later.
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'yonkes.db'}")
+
+def _database_url() -> str:
+    """SQLite by default; PostgreSQL when DATABASE_URL points to one.
+
+    Hosting providers (Render, Heroku...) hand out `postgres://` or `postgresql://`
+    URLs; SQLAlchemy needs the driver spelled out to use psycopg 3.
+    """
+    url = os.getenv("DATABASE_URL", "").strip()
+    if not url:
+        return f"sqlite:///{DATA_DIR / 'yonkes.db'}"
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix) :]
+    return url
+
+
+DATABASE_URL = _database_url()
 
 # Business timezone: decides what "today" means for subscription due dates.
 APP_TZ = ZoneInfo(os.getenv("APP_TZ", "America/Mexico_City"))

@@ -1,4 +1,5 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
 SQLAlchemy>=2.0
+psycopg[binary]>=3.2  # PostgreSQL (producción); SQLite no necesita nada extra
 tzdata  # zona horaria en Windows / imágenes mínimas
