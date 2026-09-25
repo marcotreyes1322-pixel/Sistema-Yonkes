@@ -28,8 +28,13 @@
       <form id="login-form" class="card stack" style="width: min(420px, 100%)">
         <h2 style="margin: 0">Acceso del intermediario</h2>
         <div>
-          <label for="token">Token de intermediario</label>
-          <input id="token" type="password" autocomplete="current-password" required>
+          <label for="token">Contraseña del intermediario</label>
+          <div class="row" style="flex-wrap: nowrap">
+            <input id="token" class="grow" type="password" autocomplete="current-password" required
+                   autocapitalize="none" autocorrect="off" spellcheck="false">
+            <button type="button" id="toggle-token" class="secondary" aria-label="Mostrar contraseña">Ver</button>
+          </div>
+          <p class="small muted" style="margin: 6px 0 0">Distingue mayúsculas y minúsculas.</p>
         </div>
         <button class="block" type="submit">Entrar</button>
         <p id="login-error" class="banner danger" hidden></p>

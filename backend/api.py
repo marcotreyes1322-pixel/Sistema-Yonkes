@@ -3,9 +3,10 @@
 Every endpoint requires `Authorization: Bearer <BROKER_TOKEN>`.
 """
 
+import logging
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -30,6 +31,7 @@ from .services import (
     yonke_to_dict,
 )
 
+log = logging.getLogger("yonkes.api")
 _bearer = HTTPBearer(auto_error=False)
 
 
@@ -37,9 +39,21 @@ def is_broker_token(token: str | None) -> bool:
     return bool(token) and secrets.compare_digest(token.encode(), BROKER_TOKEN.encode())
 
 
-def require_broker(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> None:
+def describe_wrong_token(token: str) -> str:
+    """Log-safe hint about why a broker password failed (never logs the password)."""
+    if token.strip() == BROKER_TOKEN:
+        return "extra spaces"
+    if token.lower() == BROKER_TOKEN.lower():
+        return "only upper/lower case differs, e.g. keyboard auto-capitalization"
+    return f"length {len(token)}, expected {len(BROKER_TOKEN)}"
+
+
+def require_broker(request: Request, creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> None:
     if creds is None or not is_broker_token(creds.credentials):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token de intermediario inválido")
+        hint = describe_wrong_token(creds.credentials) if creds else "no Authorization header"
+        client = request.client.host if request.client else "?"
+        log.warning("REST %s %s from %s: wrong broker password (%s)", request.method, request.url.path, client, hint)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Contraseña de intermediario incorrecta")
 
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_broker)])

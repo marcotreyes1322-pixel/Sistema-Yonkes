@@ -20,6 +20,7 @@ import contextlib
 import json
 import logging
 import mimetypes
+import time
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -29,7 +30,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from . import events
-from .api import is_broker_token
+from .api import describe_wrong_token, is_broker_token
 from .api import router as api_router
 from .config import FRONTEND_DIR, SUBSCRIPTION_SWEEP_SECONDS, WS_AUTH_TIMEOUT
 from .database import SessionLocal, init_db
@@ -52,6 +53,7 @@ from .services import (
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("yonkes")
+ws_log = logging.getLogger("yonkes.ws")
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
@@ -96,7 +98,8 @@ async def security_headers(request: Request, call_next):
     return response
 
 
-@app.get("/api/health", include_in_schema=False)
+# HEAD too: uptime monitors (UptimeRobot & co.) probe with HEAD by default.
+@app.api_route("/api/health", methods=["GET", "HEAD"], include_in_schema=False)
 def health() -> dict:
     return {"ok": True, "online_yonkes": len(manager.online_yonke_ids())}
 
@@ -120,17 +123,29 @@ async def _receive(ws: WebSocket) -> dict:
     return msg
 
 
-async def _read_auth_token(ws: WebSocket) -> str | None:
+def _peer(ws: WebSocket) -> str:
+    return ws.client.host if ws.client else "?"
+
+
+async def _read_auth_token(ws: WebSocket, role: str) -> str | None:
     """Wait for the {"type": "auth"} handshake. Closes the socket on failure."""
+    started = time.monotonic()
     try:
         msg = await asyncio.wait_for(_receive(ws), WS_AUTH_TIMEOUT)
-    except (TimeoutError, BadMessage):
+    except TimeoutError:
+        ws_log.warning("%s %s: no auth message within %.0fs, closing", role, _peer(ws), WS_AUTH_TIMEOUT)
         await ws.close(CLOSE_UNAUTHORIZED)
         return None
-    except WebSocketDisconnect:
+    except BadMessage as e:
+        ws_log.warning("%s %s: bad first message (%s), closing", role, _peer(ws), e)
+        await ws.close(CLOSE_UNAUTHORIZED)
+        return None
+    except WebSocketDisconnect as e:
+        ws_log.info("%s %s: closed before auth (code=%s, %.1fs)", role, _peer(ws), e.code, time.monotonic() - started)
         return None
     token = msg.get("token")
     if msg["type"] != "auth" or not isinstance(token, str) or not token:
+        ws_log.warning("%s %s: first message was %r, not auth", role, _peer(ws), msg["type"])
         await ws.close(CLOSE_UNAUTHORIZED)
         return None
     return token
@@ -177,17 +192,20 @@ async def _message_loop(ws: WebSocket, client: Client, handle) -> None:
 @app.websocket("/ws/yonke")
 async def yonke_socket(ws: WebSocket) -> None:
     await ws.accept()
-    token = await _read_auth_token(ws)
+    token = await _read_auth_token(ws, "yonke")
     if token is None:
         return
 
     with SessionLocal() as db:
         yonke = find_yonke_by_token(db, token)
     if yonke is None:
+        ws_log.warning("yonke %s: unknown access code", _peer(ws))
         return await _deny(ws, CLOSE_UNAUTHORIZED, events.ACCESS_DENIED_TOKEN)
     if not yonke.has_access(today()):
+        ws_log.info("yonke #%s %s: refused, subscription inactive", yonke.id, _peer(ws))
         return await _deny(ws, CLOSE_NO_SUBSCRIPTION, events.ACCESS_DENIED_SUBSCRIPTION)
     yonke_id = yonke.id
+    connected_at = time.monotonic()
 
     client = Client(ws)
     # Holding the client's send lock while registering and building the snapshot
@@ -225,11 +243,20 @@ async def yonke_socket(ws: WebSocket) -> None:
         # Echo to all of this yonke's devices so the phone and the PC stay in sync.
         await manager.send_to_yonke(yonke_id, {"type": "quote.saved", "ref": ref, "quote": yonke_view})
 
+    ws_log.info("yonke #%s %s: connected", yonke_id, _peer(ws))
+    close_code = None
     try:
         await _message_loop(ws, client, handle)
-    except WebSocketDisconnect:
-        pass
+    except WebSocketDisconnect as e:
+        close_code = e.code
     finally:
+        ws_log.info(
+            "yonke #%s %s: disconnected (code=%s, %.0fs)",
+            yonke_id,
+            _peer(ws),
+            close_code,
+            time.monotonic() - connected_at,
+        )
         if manager.remove_yonke(yonke_id, client):
             await manager.broadcast_presence()
 
@@ -240,10 +267,11 @@ async def yonke_socket(ws: WebSocket) -> None:
 @app.websocket("/ws/broker")
 async def broker_socket(ws: WebSocket) -> None:
     await ws.accept()
-    token = await _read_auth_token(ws)
+    token = await _read_auth_token(ws, "broker")
     if token is None:
         return
     if not is_broker_token(token):
+        ws_log.warning("broker %s: wrong password (%s)", _peer(ws), describe_wrong_token(token))
         return await _deny(
             ws, CLOSE_UNAUTHORIZED, {"type": "access_denied", "reason": "token", "message": "Token inválido"}
         )
@@ -266,6 +294,9 @@ async def broker_socket(ws: WebSocket) -> None:
             }
         )
 
+    ws_log.info("broker %s: connected", _peer(ws))
+    connected_at = time.monotonic()
+
     async def handle(msg: dict, ref: str | None) -> None:
         if msg["type"] == "request.create":
             data = RequestCreate.model_validate(msg)
@@ -282,11 +313,13 @@ async def broker_socket(ws: WebSocket) -> None:
         else:
             raise DomainError(f"Tipo de mensaje desconocido: {msg['type']}")
 
+    close_code = None
     try:
         await _message_loop(ws, client, handle)
-    except WebSocketDisconnect:
-        pass
+    except WebSocketDisconnect as e:
+        close_code = e.code
     finally:
+        ws_log.info("broker %s: disconnected (code=%s, %.0fs)", _peer(ws), close_code, time.monotonic() - connected_at)
         manager.remove_broker(client)
 
 
@@ -297,6 +330,6 @@ app.mount("/intermedio", StaticFiles(directory=FRONTEND_DIR / "intermedio", html
 app.mount("/shared", StaticFiles(directory=FRONTEND_DIR / "shared"), name="shared")
 
 
-@app.get("/", include_in_schema=False)
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 def root() -> RedirectResponse:
     return RedirectResponse("/recepcion/")

@@ -51,8 +51,8 @@ async function api(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401) {
-    logout("Tu sesión expiró. Vuelve a entrar.");
-    throw new Error("No autorizado");
+    logout("La contraseña ya no es válida. Vuelve a entrar.");
+    throw new Error("Contraseña incorrecta");
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -71,11 +71,35 @@ function logout(error = "") {
   $("login-error").hidden = !error;
 }
 
-$("login-form").addEventListener("submit", (e) => {
+$("login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  store(TOKEN_KEY, $("token").value.trim());
+  const token = $("token").value.trim();
+  const button = e.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
   enableAlerts();
+  // Check the password right away instead of failing later on the first action.
+  try {
+    const res = await fetch("/api/yonkes", { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 401) {
+      $("login-error").textContent = "Contraseña incorrecta. Revisa mayúsculas y minúsculas (toca «Ver» para revisarla).";
+      $("login-error").hidden = false;
+      return;
+    }
+  } catch {
+    // Offline or server waking up: let the live connection keep retrying.
+  } finally {
+    button.disabled = false;
+  }
+  store(TOKEN_KEY, token);
+  $("token").value = "";
   start();
+});
+
+$("toggle-token").addEventListener("click", () => {
+  const input = $("token");
+  const show = input.type === "password";
+  input.type = show ? "text" : "password";
+  $("toggle-token").textContent = show ? "Ocultar" : "Ver";
 });
 
 function start() {

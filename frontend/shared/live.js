@@ -24,6 +24,7 @@ export class LiveSocket {
     this.attempt = 0;
     this.retryTimer = null;
     this.heartbeat = null;
+    this.connectTimer = null;
     this.lastSeen = 0;
     this.pending = new Map(); // ref -> {resolve, reject, timer}
     this.refSeq = 0;
@@ -82,6 +83,8 @@ export class LiveSocket {
     const ws = new WebSocket(`${proto}://${location.host}${this.path}`);
     this.ws = ws;
     this.onStatus("connecting");
+    // Some networks leave a socket hanging without ever failing: give up and retry.
+    this.connectTimer = setTimeout(() => this.ws === ws && !this.ready && ws.close(), 15000);
 
     ws.onopen = () => {
       this.lastSeen = Date.now();
@@ -97,6 +100,7 @@ export class LiveSocket {
         return;
       }
       if (msg.type === "hello") {
+        clearTimeout(this.connectTimer);
         this.ready = true;
         this.attempt = 0;
         this._startHeartbeat();
@@ -151,6 +155,7 @@ export class LiveSocket {
   _teardown() {
     this.ready = false;
     clearInterval(this.heartbeat);
+    clearTimeout(this.connectTimer);
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
       p.reject(new Error("Se perdió la conexión, intenta de nuevo"));
