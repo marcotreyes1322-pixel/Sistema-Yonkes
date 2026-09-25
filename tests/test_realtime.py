@@ -239,3 +239,20 @@ def test_pwa_assets_served(client):
         for icon in m.json()["icons"]:
             assert client.get(icon["src"]).status_code == 200
     assert client.get("/", follow_redirects=False).headers["location"] == "/recepcion/"
+
+
+def test_render_requires_persistent_config():
+    """On Render the app must not fall back to SQLite / a generated token."""
+    import os
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k not in ("DATABASE_URL", "BROKER_TOKEN")}
+    env["RENDER"] = "true"
+    run = subprocess.run([sys.executable, "-c", "import backend.config"], env=env, capture_output=True, text=True)
+    assert run.returncode != 0 and "DATABASE_URL, BROKER_TOKEN" in run.stderr
+
+    env.update(DATABASE_URL="postgres://u:p@host/db", BROKER_TOKEN="x")
+    code = "import backend.config as c; print(c.DATABASE_URL)"
+    run = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
+    assert run.returncode == 0 and run.stdout.strip() == "postgresql+psycopg://u:p@host/db"

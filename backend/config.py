@@ -16,6 +16,17 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", ROOT_DIR / "data"))
 FRONTEND_DIR = ROOT_DIR / "frontend"
 
+# Hosts with an ephemeral disk (Render sets RENDER=true) would silently lose the
+# SQLite file and a generated broker token on every deploy or restart: refuse to
+# start instead of losing yonkes, access codes and payments.
+if os.getenv("RENDER"):
+    _missing = [v for v in ("DATABASE_URL", "BROKER_TOKEN") if not os.getenv(v, "").strip()]
+    if _missing:
+        raise RuntimeError(
+            f"Falta configurar {', '.join(_missing)} en Render (Environment). "
+            "Sin ellas los datos se borrarían en cada reinicio."
+        )
+
 
 def _database_url() -> str:
     """SQLite by default; PostgreSQL when DATABASE_URL points to one.
