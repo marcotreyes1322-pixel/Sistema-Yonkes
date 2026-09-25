@@ -92,7 +92,7 @@ def test_broadcast_quote_roundtrip(client, make_yonke):
         assert client.post(f"/api/requests/{req_id}/close", headers=BROKER).status_code == 200
         assert recv_until(ws2, "request.closed")["request_id"] == req_id
         ws2.send_json({"type": "quote.submit", "ref": "late", "request_id": req_id, "condition": "good", "price": 900})
-        assert "cerrada" in recv_until(ws2, "error")["message"]
+        assert "se cerró" in recv_until(ws2, "error")["message"]
 
     history = client.get("/api/requests", headers=BROKER).json()
     assert history[0]["status"] == "closed" and len(history[0]["quotes"]) == 1
@@ -294,7 +294,7 @@ def test_select_quote_notifies_winner_and_frees_the_others(client, make_yonke):
         again = client.post(f"/api/requests/{req_id}/select", json={"quote_id": winner["id"]}, headers=BROKER)
         assert again.status_code == 409
         ws1.send_json({"type": "quote.submit", "ref": "x", "request_id": req_id, "condition": "good", "price": 900})
-        assert "cerrada" in recv_until(ws1, "error")["message"]
+        assert "se cerró" in recv_until(ws1, "error")["message"]
 
     # The winner still sees it after reconnecting (e.g. it was offline); the others don't.
     with connect(client, "yonke", y2["access_token"]) as ws:

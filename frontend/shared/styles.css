@@ -51,6 +51,7 @@ a { color: var(--accent); }
 /* --- layout --- */
 
 .topbar {
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.12);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -93,6 +94,19 @@ main {
 .small { font-size: 0.85rem; }
 .center { text-align: center; }
 .empty { text-align: center; color: var(--muted); padding: 40px 16px; }
+.empty strong { display: block; color: var(--text); font-size: 1.05rem; margin-bottom: 4px; }
+.empty p { margin: 0; }
+.empty-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1.8rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
 
 /* --- status pill --- */
 
@@ -207,17 +221,65 @@ button.block { width: 100%; }
 }
 .card.leaving { transition: opacity 0.4s, transform 0.4s; opacity: 0; transform: scale(0.97); }
 
-.card.won, .card.won.fresh { border: 2px solid var(--ok); background: rgb(22 163 74 / 0.08); }
-.won-msg {
-  background: var(--ok);
-  color: #fff;
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 1.05rem;
+/* request card: header / body */
+.card.req { padding: 0; overflow: hidden; }
+.req-head { display: flex; gap: 12px; align-items: flex-start; padding: 16px 16px 12px; }
+.req-body { padding: 14px 16px 16px; border-top: 1px solid var(--border); }
+.req-time { font-size: 0.8rem; color: var(--muted); white-space: nowrap; padding-top: 4px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.9rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  margin-top: 6px;
 }
-.card.gone { border-style: dashed; opacity: 0.85; }
-.card.gone .req-title { text-decoration: line-through; color: var(--muted); }
-.gone-msg { margin: 0; font-weight: 600; color: var(--warn); }
+.only-fresh { display: none; margin-bottom: 6px; }
+.card.fresh .only-fresh { display: inline-block; }
+
+/* a part of theirs was picked */
+.card.won, .card.won.fresh { border: 2px solid var(--ok); }
+.card.won .req-head { background: rgb(22 163 74 / 0.08); }
+.won-msg {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  color: #fff;
+  border-radius: 12px;
+  padding: 14px;
+  line-height: 1.4;
+}
+.won-msg strong { font-size: 1.1rem; display: block; margin-bottom: 2px; }
+.won-icon { font-size: 1.6rem; line-height: 1; }
+.won-quote { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 0.95rem; }
+
+/* request no longer needs quotes: calm, neutral, thankful */
+.card.gone {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--surface);
+  border-color: var(--border);
+}
+.gone-icon {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: #0369a1;
+  background: rgb(14 165 233 / 0.14);
+}
+.gone-title { font-weight: 700; }
+.gone-part { color: var(--muted); font-size: 0.9rem; margin-top: 2px; }
+.gone-msg { margin: 6px 0 0; font-size: 0.95rem; }
+.btn.wa { background: #16a34a; color: #fff; }
 .quote.selected { background: rgb(22 163 74 / 0.1); border-radius: 10px; padding: 10px; border-top-color: transparent; }
 .quote .pick { grid-column: 1 / -1; justify-self: end; }
 

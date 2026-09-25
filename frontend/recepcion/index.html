@@ -27,7 +27,7 @@
     <div class="screen-center">
       <form id="login-form" class="card stack" style="width: min(420px, 100%)">
         <h2 style="margin: 0">Activar este dispositivo</h2>
-        <p class="muted" style="margin: 0">Escribe el código de acceso que te dio el intermediario.</p>
+        <p class="muted" style="margin: 0">Escribe el código de acceso que te compartimos.</p>
         <div>
           <label for="token">Código de acceso</label>
           <input id="token" class="token-input" autocomplete="off" autocapitalize="characters"
@@ -44,13 +44,15 @@
     <div id="denied" class="banner danger" hidden></div>
     <div id="expiry" class="banner warn" hidden></div>
     <div id="alerts-banner" class="banner info row" hidden>
-      <span class="grow">Activa el sonido para enterarte al instante de cada solicitud.</span>
+      <span class="grow">🔔 Activa las alertas para enterarte al instante de cada solicitud nueva.</span>
       <button id="enable-alerts" class="sm">Activar alertas</button>
     </div>
     <div id="requests"></div>
-    <p id="empty" class="empty" hidden>
-      No hay solicitudes abiertas.<br>Deja la app abierta: las nuevas aparecen aquí al instante.
-    </p>
+    <div id="empty" class="empty" hidden>
+      <div class="empty-icon" aria-hidden="true">🔧</div>
+      <strong>Por ahora no hay solicitudes</strong>
+      <p>Deja la app abierta: te avisamos en cuanto llegue una nueva.</p>
+    </div>
     <p class="center small muted">
       <span id="whoami"></span> ·
       <a href="#" id="logout" class="muted">Cambiar código</a>

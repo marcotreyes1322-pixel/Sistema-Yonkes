@@ -14,12 +14,12 @@ from .services import quote_to_dict, request_to_dict, today, yonke_to_dict
 ACCESS_DENIED_SUBSCRIPTION = {
     "type": "access_denied",
     "reason": "subscription",
-    "message": "Tu suscripción no está activa. Comunícate con el intermediario para renovarla.",
+    "message": "Tu acceso está en pausa por ahora. Escríbenos cuando gustes y lo reactivamos.",
 }
 ACCESS_DENIED_TOKEN = {
     "type": "access_denied",
     "reason": "token",
-    "message": "Tu código de acceso ya no es válido. Pide uno nuevo al intermediario.",
+    "message": "Tu código de acceso se actualizó. Pídenos el nuevo para seguir recibiendo solicitudes.",
 }
 
 

@@ -50,9 +50,9 @@ const socket = new LiveSocket({
   onDenied: (reason) => {
     if (reason === "token") {
       store(TOKEN_KEY, null);
-      showLogin(state.deniedMessage || "Código inválido. Revísalo o pide uno nuevo al intermediario.");
+      showLogin(state.deniedMessage || "No reconocimos ese código. Revísalo, o pídenos uno nuevo y con gusto te lo damos.");
     } else {
-      $("denied").textContent = `${state.deniedMessage} Reintentaremos automáticamente.`;
+      $("denied").textContent = `${state.deniedMessage} Esta pantalla se actualizará sola en cuanto se reactive.`;
       $("denied").hidden = false;
       clearRequests();
     }
@@ -119,7 +119,7 @@ function handleMessage(msg) {
     case "request.won":
       upsertRequest(msg.request, { fresh: true });
       beep(4);
-      notify("¡Eligieron tu pieza!", `${msg.request.part_name} · ${msg.request.vehicle_model} — apártala`, {
+      notify("¡Buenas noticias! 🎉", `Seleccionamos tu ${msg.request.part_name} (${msg.request.vehicle_model}). Por favor apártala.`, {
         tag: `won-${msg.request.id}`,
       });
       break;
@@ -137,8 +137,9 @@ function handleMessage(msg) {
       break;
 
     case "request.closed":
-      if (msg.reason === "selected") showFoundElsewhere(msg.request_id);
-      else removeRequest(msg.request_id);
+      // Same gentle notice whether another yonke was picked or the request was just
+      // closed: the yonke never learns the sale went elsewhere.
+      showRequestCovered(msg.request_id);
       break;
 
     case "quote.saved": {
@@ -162,8 +163,8 @@ function renderExpiry(dueDate) {
   banner.hidden = days > 5;
   banner.textContent =
     days === 0
-      ? "Tu suscripción vence HOY. Renueva con el intermediario para no perder solicitudes."
-      : `Tu suscripción vence en ${days} día${days === 1 ? "" : "s"} (${formatDate(dueDate)}).`;
+      ? "Tu suscripción vence hoy. Renuévala para seguir recibiendo solicitudes sin interrupción."
+      : `Tu suscripción vence en ${days} día${days === 1 ? "" : "s"} (${formatDate(dueDate)}). Recuerda renovarla para no perderte ninguna solicitud.`;
 }
 
 // --- request cards ----------------------------------------------------------
@@ -193,8 +194,8 @@ function removeRequest(id) {
   updateEmpty();
 }
 
-/** Another yonke's part was picked: tell this one to stop searching, then drop the card. */
-function showFoundElsewhere(id) {
+/** The request no longer needs quotes: thank the yonke kindly, then drop the card. */
+function showRequestCovered(id) {
   const req = state.requests.get(id);
   const old = state.cards.get(id);
   if (!req || !old) return removeRequest(id);
@@ -202,18 +203,22 @@ function showFoundElsewhere(id) {
   state.cards.delete(id);
   state.editing.delete(id);
   const card = h(
-    "article.card.stack.gone",
+    "article.card.gone",
     { role: "status" },
-    h("div.req-title", req.part_name),
-    h("p.req-vehicle", req.vehicle_model),
-    h("p.gone-msg", "Ya se consiguió con otro yonke. Ya no la busques 👍"),
+    h("div.gone-icon", { "aria-hidden": "true" }, "✓"),
+    h(
+      "div.grow",
+      h("div.gone-title", "Solicitud cubierta"),
+      h("div.gone-part", `${req.part_name} · ${req.vehicle_model}`),
+      h("p.gone-msg", "Gracias por revisarla. Ya no es necesario buscarla; te avisamos en cuanto llegue la siguiente."),
+    ),
   );
   old.replaceWith(card);
   updateEmpty();
   setTimeout(() => {
     card.classList.add("leaving");
     setTimeout(() => card.remove(), 400);
-  }, 8000);
+  }, 10000);
 }
 
 function dismissedWon() {
@@ -239,14 +244,22 @@ function updateEmpty() {
 /** (Re)builds a card in place, keeping its position in the list. */
 function renderCard(req) {
   const card = h(
-    "article.card.stack",
+    "article.card.req",
     { dataset: { id: req.id } },
     h(
-      "div.row",
-      h("div.grow", h("h2.req-title", req.part_name), h("p.req-vehicle", req.vehicle_model)),
-      h("span.badge", { dataset: { ts: req.timestamp } }, timeAgo(req.timestamp)),
+      "header.req-head",
+      h(
+        "div.grow",
+        h("span.badge.new.only-fresh", "Nueva"),
+        h("h2.req-title", req.part_name),
+        h("p.req-vehicle", h("span.chip", "🚗 ", req.vehicle_model)),
+      ),
+      h("span.req-time", { dataset: { ts: req.timestamp } }, timeAgo(req.timestamp)),
     ),
-    req.won ? wonView(req) : req.my_quote && !state.editing.has(req.id) ? myQuoteView(req) : quoteForm(req),
+    h(
+      "div.req-body",
+      req.won ? wonView(req) : req.my_quote && !state.editing.has(req.id) ? myQuoteView(req) : quoteForm(req),
+    ),
   );
   if (req.won) card.classList.add("won");
   const old = state.cards.get(req.id);
@@ -264,10 +277,20 @@ function wonView(req) {
     "div.stack",
     h(
       "div.won-msg",
-      h("strong", "✅ ¡Eligieron tu pieza!"),
-      h("div", "Apártala: el intermediario te va a contactar para recogerla."),
+      h("div.won-icon", { "aria-hidden": "true" }, "🎉"),
+      h(
+        "div",
+        h("strong", "¡Buenas noticias!"),
+        h("div", "Seleccionamos tu cotización. Por favor aparta la pieza; en breve te contactamos para coordinar la entrega."),
+      ),
     ),
-    q && h("div.small", `Tu cotización: ${money(q.price)} · ${CONDITIONS[q.condition]}${q.notes ? ` · ${q.notes}` : ""}`),
+    q &&
+      h(
+        "div.won-quote",
+        h("span.muted", "Tu cotización"),
+        h("strong", money(q.price)),
+        h("span", `${CONDITIONS[q.condition]}${q.notes ? ` · ${q.notes}` : ""}`),
+      ),
     h(
       "button.secondary.block",
       {
@@ -278,7 +301,7 @@ function wonView(req) {
           removeRequest(req.id);
         },
       },
-      "Entendido, ya la aparté",
+      "Listo, ya la aparté",
     ),
   );
 }
@@ -383,7 +406,7 @@ function quoteForm(req) {
         price,
         notes: form.elements.notes.value.trim() || null,
       });
-      toast("Cotización enviada ✔", "ok");
+      toast("¡Gracias! Tu cotización fue enviada ✔", "ok");
     } catch (err) {
       toast(err.message, "error");
       button.disabled = false;

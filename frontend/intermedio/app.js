@@ -250,7 +250,8 @@ function requestCard(r) {
           "button.secondary.sm",
           {
             onclick: async () => {
-              if (!confirm(`¿Cerrar la solicitud "${r.part_name}"? Los yonkes dejarán de verla.`)) return;
+              const q = `¿Cerrar "${r.part_name}" sin elegir cotización?\n\nA los yonkes les aparecerá, con un mensaje amable, que la solicitud ya quedó cubierta.`;
+              if (!confirm(q)) return;
               try {
                 await api("POST", `/api/requests/${r.id}/close`);
               } catch (err) {
@@ -265,8 +266,13 @@ function requestCard(r) {
 }
 
 function quoteRow(r, q, best) {
-  const wa = whatsappUrl(q.yonke.phone, `Hola ${q.yonke.name}, sobre tu cotización de ${r.part_name} (${r.vehicle_model}) por ${money(q.price)}: `);
   const selected = q.id === r.selected_quote_id;
+  const wa = whatsappUrl(
+    q.yonke.phone,
+    selected
+      ? `Hola ${q.yonke.name}, ¡buenas noticias! Nos quedamos con tu ${r.part_name} para ${r.vehicle_model} en ${money(q.price)}. ¿Nos la apartas, por favor? En un momento te confirmo cuándo pasamos por ella. ¡Gracias!`
+      : `Hola ${q.yonke.name}, te escribo por tu cotización de ${r.part_name} (${r.vehicle_model}) en ${money(q.price)}. `,
+  );
   const loser = r.selected_quote_id != null && !selected;
   return h(
     `div.quote${best && r.quotes.length > 1 ? ".best" : ""}${selected ? ".selected" : ""}`,
@@ -289,20 +295,21 @@ function quoteRow(r, q, best) {
     ),
     h("div.small.muted", { style: "text-align: right" }, timeAgo(q.created_at)),
     r.status === "open" && h("button.sm.pick", { type: "button", onclick: () => selectQuote(r, q) }, "Elegir esta"),
+    selected && h("a.btn.sm.pick.wa", { href: wa, target: "_blank", rel: "noopener" }, "💬 Pedirle que la aparte"),
   );
 }
 
 async function selectQuote(r, q) {
   const question =
     `¿Elegir la pieza de ${q.yonke.name} por ${money(q.price)}?\n\n` +
-    `Se cierra la solicitud: a ${q.yonke.name} le avisamos que la aparte y a los demás yonkes que ya no la busquen.`;
+    `La solicitud se cierra. A ${q.yonke.name} le pediremos que aparte la pieza, y a los demás yonkes les avisaremos de forma discreta que la solicitud ya quedó cubierta (no sabrán a quién se eligió).`;
   if (!confirm(question)) return;
   try {
     const updated = await api("POST", `/api/requests/${r.id}/select`, { quote_id: q.id });
     const req = state.requests.get(r.id);
     state.requests.set(r.id, { ...req, ...updated, quotes: req?.quotes || [] });
     renderRequests();
-    toast(`Listo: elegiste a ${q.yonke.name}. Ya avisamos a los demás yonkes.`, "ok");
+    toast(`Listo: elegiste a ${q.yonke.name}. Toca «Pedirle que la aparte» para escribirle por WhatsApp.`, "ok");
   } catch (err) {
     toast(err.message, "error");
   }

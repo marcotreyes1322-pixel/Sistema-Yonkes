@@ -143,7 +143,7 @@ def select_quote(db: Session, request_id: int, quote_id: int) -> tuple[Request, 
     )
     if result.rowcount == 0:
         db.rollback()
-        raise DomainError("La solicitud ya fue cerrada")
+        raise DomainError("Esta solicitud ya se cerró. ¡Gracias por cotizar!")
     db.commit()
     db.refresh(req)
     return req, quote
@@ -155,7 +155,7 @@ def submit_quote(db: Session, yonke: Yonke, data: QuoteSubmit) -> tuple[Quote, b
     if req is None:
         raise DomainError("La solicitud no existe")
     if req.status != RequestStatus.OPEN:
-        raise DomainError("La solicitud ya fue cerrada")
+        raise DomainError("Esta solicitud ya se cerró. ¡Gracias por cotizar!")
 
     quote = db.scalar(select(Quote).where(Quote.request_id == req.id, Quote.yonke_id == yonke.id))
     created = quote is None
