@@ -9,11 +9,15 @@ import {
   enableAlerts,
   formatDate,
   h,
+  hydrateIcons,
+  icon,
   money,
   notify,
+  photoField,
   registerServiceWorker,
   setupInstallButton,
   store,
+  thumb,
   timeAgo,
   toast,
 } from "/shared/live.js";
@@ -28,6 +32,8 @@ const state = {
   showClosed: false,
 };
 
+hydrateIcons();
+
 // --- connection & auth ------------------------------------------------------
 
 const socket = new LiveSocket({
@@ -38,7 +44,7 @@ const socket = new LiveSocket({
     $("status").dataset.state = s;
     $("status").textContent = STATUS_TEXT[s];
   },
-  onDenied: () => logout("Token incorrecto."),
+  onDenied: () => logout("La contraseña ya no es válida. Vuelve a entrar."),
 });
 
 async function api(method, path, body) {
@@ -100,6 +106,7 @@ $("toggle-token").addEventListener("click", () => {
   const show = input.type === "password";
   input.type = show ? "text" : "password";
   $("toggle-token").textContent = show ? "Ocultar" : "Ver";
+  $("toggle-token").setAttribute("aria-label", show ? "Ocultar contraseña" : "Mostrar contraseña");
 });
 
 function start() {
@@ -178,25 +185,37 @@ function handleMessage(msg) {
 
 function renderOnline() {
   const n = state.online.size;
-  $("online-count").textContent = `${n} yonke${n === 1 ? "" : "s"}`;
-  $("online-count").dataset.state = n ? "online" : "offline";
+  $("online-count").textContent = `${n} yonke${n === 1 ? "" : "s"} en línea`;
+  const open = [...state.requests.values()].filter((r) => r.status === "open").length;
+  $("count-requests").textContent = open ? String(open) : "";
+  $("count-yonkes").textContent = state.yonkes.size ? String(state.yonkes.size) : "";
 }
 
 // --- requests ---------------------------------------------------------------
 
+let requestPhoto;
+function resetRequestPhoto() {
+  requestPhoto = photoField({ getToken: () => store(TOKEN_KEY), label: "Agregar foto" });
+  $("request-photo").replaceChildren(requestPhoto.el);
+}
+resetRequestPhoto();
+
 $("request-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.currentTarget;
-  const button = form.querySelector("button");
+  const button = form.querySelector('button[type="submit"]');
   button.disabled = true;
   try {
+    await requestPhoto.ready();
     const reply = await socket.request("request.create", {
       part_name: form.elements.part_name.value.trim(),
       vehicle_model: form.elements.vehicle_model.value.trim(),
+      photo_id: requestPhoto.value() || null,
     });
     const n = reply.delivered_to;
-    toast(n ? `Enviada a ${n} yonke${n === 1 ? "" : "s"} en línea ✔` : "Guardada, pero no hay yonkes en línea ahora", n ? "ok" : "");
+    toast(n ? `Enviada a ${n} yonke${n === 1 ? "" : "s"} en línea` : "Guardada, pero no hay yonkes en línea ahora", n ? "ok" : "");
     form.reset();
+    resetRequestPhoto();
     form.elements.part_name.focus();
   } catch (err) {
     toast(err.message, "error");
@@ -222,32 +241,53 @@ function renderRequests() {
 // Found parts stay on the main list for a day so the broker can follow up with the winner.
 const recentlyFound = (r) => r.selected_quote_id != null && Date.now() - new Date(r.timestamp) < 86400000;
 
+const conditionBadge = (c) => h(`span.badge.${c === "good" ? "ok" : c === "regular" ? "warn" : "danger"}`, CONDITIONS[c]);
+
 function requestCard(r) {
   const open = r.status === "open";
   const found = r.selected_quote_id != null;
   // Winner first, then by price.
   const quotes = [...(r.quotes || [])].sort((a, b) => (b.id === r.selected_quote_id) - (a.id === r.selected_quote_id));
+  const n = quotes.length;
   return h(
-    "article.card",
-    { style: open || found ? null : "opacity: .65" },
+    "article.card.req",
+    { style: open || found ? null : "opacity: .7" },
     h(
-      "div.row",
-      h("div.grow", h("h3.req-title", r.part_name), h("p.req-vehicle", r.vehicle_model)),
-      h("span.badge", { dataset: { ts: r.timestamp } }, timeAgo(r.timestamp)),
-      open ? h("span.badge.ok", "Abierta") : found ? h("span.badge.ok", "✔ Conseguida") : h("span.badge", "Cerrada"),
+      "header.req-head",
+      h(
+        "div.req-main",
+        h(
+          "div.req-top",
+          open
+            ? h("span.badge.accent", "Abierta")
+            : found
+              ? h("span.badge.ok", icon("check", 12), "Conseguida")
+              : h("span.badge", "Cerrada"),
+          n > 0 && h("span.badge", `${n} cotizaci${n === 1 ? "ón" : "ones"}`),
+        ),
+        h("h3.req-title", r.part_name),
+        h(
+          "div.req-meta",
+          h("span.meta", icon("car", 16), r.vehicle_model),
+          h("span.meta", icon("clock", 15), h("span", { dataset: { ts: r.timestamp } }, timeAgo(r.timestamp))),
+        ),
+      ),
+      thumb(r.photo_url),
     ),
-    quotes.length
-      ? h("div", { style: "margin-top: 8px" }, quotes.map((q, i) => quoteRow(r, q, open && i === 0)))
+    n
+      ? h("div.quotes", quotes.map((q, i) => quoteRow(r, q, open && n > 1 && i === 0)))
       : h(
-          "p.muted.small",
-          open ? `Esperando cotizaciones… (${state.online.size} yonkes en línea)` : "Sin cotizaciones.",
+          "div.waiting",
+          icon("clock", 16),
+          open
+            ? `Esperando cotizaciones · ${state.online.size} yonke${state.online.size === 1 ? "" : "s"} en línea`
+            : "Se cerró sin cotizaciones.",
         ),
     open &&
       h(
-        "div.row",
-        { style: "margin-top: 8px; justify-content: flex-end" },
+        "div.req-foot",
         h(
-          "button.secondary.sm",
+          "button.ghost.sm",
           {
             onclick: async () => {
               const q = `¿Cerrar "${r.part_name}" sin elegir cotización?\n\nA los yonkes les aparecerá, con un mensaje amable, que la solicitud ya quedó cubierta.`;
@@ -259,7 +299,7 @@ function requestCard(r) {
               }
             },
           },
-          "Cerrar solicitud",
+          "Cerrar sin elegir",
         ),
       ),
   );
@@ -273,29 +313,33 @@ function quoteRow(r, q, best) {
       ? `Hola ${q.yonke.name}, ¡buenas noticias! Nos quedamos con tu ${r.part_name} para ${r.vehicle_model} en ${money(q.price)}. ¿Nos la apartas, por favor? En un momento te confirmo cuándo pasamos por ella. ¡Gracias!`
       : `Hola ${q.yonke.name}, te escribo por tu cotización de ${r.part_name} (${r.vehicle_model}) en ${money(q.price)}. `,
   );
-  const loser = r.selected_quote_id != null && !selected;
+  const dimmed = r.selected_quote_id != null && !selected;
   return h(
-    `div.quote${best && r.quotes.length > 1 ? ".best" : ""}${selected ? ".selected" : ""}`,
-    { style: loser ? "opacity: .55" : null },
+    `div.quote${best ? ".best" : ""}${selected ? ".selected" : ""}${dimmed ? ".dimmed" : ""}`,
+    thumb(q.photo_url),
     h(
-      "div",
-      h("strong", q.yonke.name),
-      " ",
-      h(`span.badge.${q.condition === "good" ? "ok" : q.condition === "regular" ? "warn" : "danger"}`, CONDITIONS[q.condition]),
-      best && r.quotes.length > 1 ? h("span.badge.ok", { style: "margin-left: 4px" }, "Mejor precio") : null,
-      selected ? h("span.badge.new", { style: "margin-left: 4px" }, "✔ Elegida") : null,
+      "div.quote-main",
+      h(
+        "div.quote-name",
+        q.yonke.name,
+        conditionBadge(q.condition),
+        best && h("span.badge.ok", "Mejor precio"),
+        selected && h("span.badge.solid", icon("check", 12), "Elegida"),
+      ),
+      q.notes && h("div.quote-notes", q.notes),
+      h(
+        "div.quote-links",
+        h("a", { href: `tel:${q.yonke.phone}` }, icon("phone", 14), q.yonke.phone),
+        h("a", { href: wa, target: "_blank", rel: "noopener" }, icon("message", 14), "WhatsApp"),
+        h("span.meta", { style: "font-size: inherit" }, h("span", { dataset: { ts: q.created_at } }, timeAgo(q.created_at))),
+      ),
     ),
-    h("div.price", money(q.price)),
     h(
-      "div.small.muted",
-      q.notes ? h("div", q.notes) : null,
-      h("a", { href: `tel:${q.yonke.phone}` }, q.yonke.phone),
-      " · ",
-      h("a", { href: wa, target: "_blank", rel: "noopener" }, "WhatsApp"),
+      "div.quote-side",
+      h("div.price", money(q.price)),
+      r.status === "open" && h("button.sm", { type: "button", onclick: () => selectQuote(r, q) }, "Elegir esta"),
+      selected && h("a.btn.sm.success", { href: wa, target: "_blank", rel: "noopener" }, icon("message", 15), "Pedirle que la aparte"),
     ),
-    h("div.small.muted", { style: "text-align: right" }, timeAgo(q.created_at)),
-    r.status === "open" && h("button.sm.pick", { type: "button", onclick: () => selectQuote(r, q) }, "Elegir esta"),
-    selected && h("a.btn.sm.pick.wa", { href: wa, target: "_blank", rel: "noopener" }, "💬 Pedirle que la aparte"),
   );
 }
 
@@ -326,7 +370,7 @@ function whatsappUrl(phone, text) {
 $("yonke-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.currentTarget;
-  const button = form.querySelector("button");
+  const button = form.querySelector('button[type="submit"]');
   button.disabled = true;
   try {
     const cred = await api("POST", "/api/yonkes", {
@@ -353,36 +397,48 @@ function subscriptionBadge(y) {
   return h("span.badge.ok", "Activo");
 }
 
+const initials = (name) =>
+  name
+    .split(/\s+/)
+    .filter((w) => w.length > 2 || /^[A-ZÁÉÍÓÚÑ]/.test(w))
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("") || name.slice(0, 1).toUpperCase();
+
 function renderYonkes() {
+  renderOnline();
   const yonkes = [...state.yonkes.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
   $("yonkes").replaceChildren(
     ...yonkes.map((y) => {
       const online = state.online.has(y.id);
       const suspended = y.subscription_status === "suspended";
       return h(
-        "tr",
-        h("td", { dataset: { label: "En línea" } }, h(`span.dot${online ? ".on" : ""}`, { title: online ? "En línea" : "Desconectado" })),
-        h("td", { dataset: { label: "Yonke" } }, h("strong", y.name)),
-        h("td", { dataset: { label: "Teléfono" } }, h("a", { href: `tel:${y.phone}` }, y.phone)),
-        h("td", { dataset: { label: "Suscripción" } }, subscriptionBadge(y)),
-        h("td", { dataset: { label: "Pagado hasta" } }, formatDate(y.payment_due_date)),
+        "div.yonke-row",
+        h(`div.avatar${online ? ".on" : ""}`, { title: online ? "En línea" : "Desconectado" }, initials(y.name)),
         h(
-          "td",
+          "div.grow",
+          h("div.quote-name", y.name, subscriptionBadge(y)),
           h(
-            "div.row",
-            { style: "justify-content: flex-end" },
-            h("button.sm", { onclick: () => registerPayment(y) }, "+1 mes"),
-            h(
-              "button.secondary.sm",
-              { onclick: () => setSuspended(y, !suspended) },
-              suspended ? "Reactivar" : "Suspender",
-            ),
-            h("button.secondary.sm", { onclick: () => regenerateToken(y) }, "Nuevo código"),
+            "div.quote-links",
+            h("a", { href: `tel:${y.phone}` }, icon("phone", 14), y.phone),
+            h("span.meta", { style: "font-size: inherit" }, icon("clock", 14), `Pagado hasta el ${formatDate(y.payment_due_date)}`),
           ),
+        ),
+        h(
+          "div.yonke-actions",
+          h("button.sm", { onclick: () => registerPayment(y) }, icon("plus", 15), "1 mes"),
+          h(
+            "button.secondary.sm",
+            { onclick: () => setSuspended(y, !suspended) },
+            icon(suspended ? "play" : "pause", 14),
+            suspended ? "Reactivar" : "Suspender",
+          ),
+          h("button.secondary.sm", { onclick: () => regenerateToken(y) }, icon("key", 15), "Nuevo código"),
         ),
       );
     }),
   );
+  $("yonkes").hidden = yonkes.length === 0;
   $("yonkes-empty").hidden = yonkes.length > 0;
 }
 

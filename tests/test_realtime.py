@@ -343,5 +343,114 @@ def test_migration_adds_selected_quote_column_to_old_databases(tmp_path):
         with engine.begin() as conn:
             migrate(conn)
     with engine.connect() as conn:
-        assert "selected_quote_id" in {c["name"] for c in inspect(conn).get_columns("requests")}
+        assert {"selected_quote_id", "photo_id"} <= {c["name"] for c in inspect(conn).get_columns("requests")}
+        assert "photo_id" in {c["name"] for c in inspect(conn).get_columns("quotes")}
         assert conn.execute(text("SELECT part_name, selected_quote_id FROM requests")).one() == ("Alternador", None)
+
+
+# A real, minimal 1x1 JPEG and PNG.
+TINY_JPEG = bytes.fromhex(
+    "ffd8ffe000104a46494600010100000100010000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720"
+    "222c231c1c2837292c30313434341f27393d38323c2e333432ffc0000b080001000101011100ffc4001f0000010501010101010100000000000000000102030405"
+    "060708090a0bffc400b5100002010303020403050504040000017d01020300041105122131410613516107227114328191a1082342b1c11552d1f02433627282"
+    "090a161718191a25262728292a3435363738393a434445464748494a535455565758595a636465666768696a737475767778797a838485868788898a92939495"
+    "969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffda0008"
+    "010100003f00fbd3ffd9"
+)
+TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082"
+)
+
+
+def upload(client, token, data, content_type="image/jpeg"):
+    return client.post(
+        "/api/photos", content=data, headers={"Authorization": f"Bearer {token}", "Content-Type": content_type}
+    )
+
+
+def test_photo_upload_permissions_and_validation(client, make_yonke):
+    y = make_yonke()
+    r = upload(client, "test-broker-token", TINY_JPEG)
+    assert r.status_code == 201 and r.json()["url"] == f"/photos/{r.json()['id']}"
+    served = client.get(r.json()["url"])
+    assert served.status_code == 200 and served.content == TINY_JPEG
+    assert served.headers["content-type"] == "image/jpeg" and "immutable" in served.headers["cache-control"]
+
+    # Yonkes upload with their access code; type comes from the bytes, not the header.
+    r = upload(client, y["access_token"], TINY_PNG, content_type="image/jpeg")
+    assert r.status_code == 201 and client.get(r.json()["url"]).headers["content-type"] == "image/png"
+
+    assert upload(client, "nope", TINY_JPEG).status_code == 401
+    assert upload(client, "test-broker-token", b"<html>not an image</html>").status_code == 422
+    assert upload(client, "test-broker-token", b"").status_code == 422
+    assert client.get("/photos/" + "0" * 32).status_code == 404
+
+    client.patch(f"/api/yonkes/{y['yonke']['id']}", json={"subscription_status": "suspended"}, headers=BROKER)
+    assert upload(client, y["access_token"], TINY_JPEG).status_code == 403
+
+
+def test_photos_on_requests_and_quotes(client, make_yonke):
+    y1, y2 = make_yonke("Uno"), make_yonke("Dos", "6620000002")
+    broker_photo = upload(client, "test-broker-token", TINY_JPEG).json()
+    y1_photo = upload(client, y1["access_token"], TINY_JPEG).json()
+
+    with (
+        connect(client, "broker", "test-broker-token") as broker,
+        connect(client, "yonke", y1["access_token"]) as ws1,
+    ):
+        broker.receive_json()
+        ws1.receive_json()
+        broker.send_json(
+            {"type": "request.create", "vehicle_model": "Jetta A4", "part_name": "Faro", "photo_id": broker_photo["id"]}
+        )
+        created = recv_until(broker, "request.created")["request"]
+        assert created["photo_url"] == broker_photo["url"]
+        assert recv_until(ws1, "request.new")["request"]["photo_url"] == broker_photo["url"]
+        req_id = created["id"]
+
+        # Yonke 1 quotes with its own photo...
+        ws1.send_json(
+            {
+                "type": "quote.submit",
+                "request_id": req_id,
+                "condition": "good",
+                "price": 900,
+                "photo_id": y1_photo["id"],
+            }
+        )
+        assert recv_until(ws1, "quote.saved")["quote"]["photo_url"] == y1_photo["url"]
+        assert recv_until(broker, "quote.new")["quote"]["photo_url"] == y1_photo["url"]
+
+        # ...editing without sending photo_id keeps it; null removes it.
+        ws1.send_json({"type": "quote.submit", "request_id": req_id, "condition": "good", "price": 850})
+        assert recv_until(ws1, "quote.saved")["quote"]["photo_url"] == y1_photo["url"]
+        ws1.send_json(
+            {"type": "quote.submit", "request_id": req_id, "condition": "good", "price": 850, "photo_id": None}
+        )
+        assert recv_until(ws1, "quote.saved")["quote"]["photo_url"] is None
+
+        # Nobody can attach a photo someone else uploaded.
+        ws1.send_json(
+            {
+                "type": "quote.submit",
+                "ref": "x",
+                "request_id": req_id,
+                "condition": "good",
+                "price": 1,
+                "photo_id": broker_photo["id"],
+            }
+        )
+        assert "foto" in recv_until(ws1, "error")["message"]
+        broker.send_json(
+            {
+                "type": "request.create",
+                "ref": "y",
+                "vehicle_model": "Aveo",
+                "part_name": "Puerta",
+                "photo_id": y1_photo["id"],
+            }
+        )
+        assert "foto" in recv_until(broker, "error")["message"]
+
+    with connect(client, "yonke", y2["access_token"]) as ws2:
+        assert ws2.receive_json()["requests"][0]["photo_url"] == broker_photo["url"]

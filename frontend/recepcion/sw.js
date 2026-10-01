@@ -1,7 +1,7 @@
 // Service worker: makes the app installable and lets it open instantly (and
 // show a friendly screen) even with a bad connection. Live data always comes
 // from the WebSocket; only the static app shell is cached.
-const CACHE = "recepcion-v1";
+const CACHE = "recepcion-v2";
 const SHELL = [
   "/recepcion/",
   "/recepcion/app.js",
@@ -29,7 +29,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
-  if (req.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api/")) return;
+  if (req.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api/") || url.pathname.startsWith("/photos/")) return;
   event.respondWith(
     fetch(req)
       .then((res) => {

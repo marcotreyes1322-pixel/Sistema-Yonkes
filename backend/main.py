@@ -23,8 +23,8 @@ import mimetypes
 import time
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from sqlalchemy import select
@@ -34,18 +34,21 @@ from .api import describe_wrong_token, is_broker_token
 from .api import router as api_router
 from .config import FRONTEND_DIR, SUBSCRIPTION_SWEEP_SECONDS, WS_AUTH_TIMEOUT
 from .database import SessionLocal, init_db
-from .models import Yonke
+from .models import Photo, Yonke
 from .realtime import CLOSE_NO_SUBSCRIPTION, CLOSE_UNAUTHORIZED, Client, manager
 from .schemas import QuoteSelect, QuoteSubmit, RequestCreate
 from .services import (
+    MAX_PHOTO_BYTES,
     DomainError,
     close_request,
     create_request,
     find_yonke_by_token,
     list_requests,
     open_requests_for_yonke,
+    photo_url,
     quote_to_dict,
     request_to_dict,
+    save_photo,
     select_quote,
     submit_quote,
     today,
@@ -103,6 +106,50 @@ async def security_headers(request: Request, call_next):
 @app.api_route("/api/health", methods=["GET", "HEAD"], include_in_schema=False)
 def health() -> dict:
     return {"ok": True, "online_yonkes": len(manager.online_yonke_ids())}
+
+
+# --- photos -----------------------------------------------------------------
+
+
+@app.post("/api/photos", status_code=status.HTTP_201_CREATED)
+async def upload_photo(request: Request) -> dict:
+    """Upload one picture as the raw request body (the apps send an already-compressed JPEG).
+
+    Allowed for the broker (its password) and for yonkes with an active
+    subscription (their access code), both as `Authorization: Bearer ...`.
+    """
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    yonke_id = None
+    if not is_broker_token(token):
+        with SessionLocal() as db:
+            yonke = find_yonke_by_token(db, token)
+        if yonke is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "No autorizado")
+        if not yonke.has_access(today()):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Tu acceso está en pausa por ahora")
+        yonke_id = yonke.id
+    if int(request.headers.get("content-length") or 0) > MAX_PHOTO_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "La foto es demasiado grande (máximo 4 MB)")
+    data = await request.body()
+    try:
+        with SessionLocal() as db:
+            photo = save_photo(db, data, yonke_id=yonke_id)
+    except DomainError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
+    return {"id": photo.id, "url": photo_url(photo.id)}
+
+
+@app.get("/photos/{photo_id}", include_in_schema=False)
+def get_photo(photo_id: str) -> Response:
+    with SessionLocal() as db:
+        photo = db.get(Photo, photo_id) if len(photo_id) == 32 else None
+    if photo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Foto no encontrada")
+    # Photos never change once uploaded, so browsers may keep them forever.
+    return Response(
+        photo.data, media_type=photo.content_type, headers={"Cache-Control": "private, max-age=31536000, immutable"}
+    )
 
 
 # --- WebSocket helpers ------------------------------------------------------

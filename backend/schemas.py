@@ -11,6 +11,9 @@ Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max
 Phone = Annotated[str, StringConstraints(strip_whitespace=True, min_length=7, max_length=30)]
 
 
+PhotoId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]
+
+
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -18,6 +21,7 @@ class _Strict(BaseModel):
 class RequestCreate(_Strict):
     vehicle_model: Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=120)]
     part_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=160)]
+    photo_id: PhotoId | None = None
 
 
 class QuoteSubmit(_Strict):
@@ -25,6 +29,7 @@ class QuoteSubmit(_Strict):
     condition: PartCondition
     price: float = Field(gt=0, le=10_000_000)
     notes: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = None
+    photo_id: PhotoId | None = None
 
 
 class QuoteSelect(_Strict):

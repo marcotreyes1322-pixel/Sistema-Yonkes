@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -75,6 +76,25 @@ class Yonke(Base):
         return self.subscription_status == SubscriptionStatus.ACTIVE and self.payment_due_date >= today
 
 
+class Photo(Base):
+    """An uploaded picture, stored in the database itself.
+
+    Render's disk is wiped on every deploy, so files can't live on it. Photos are
+    downscaled on the phone before upload (~100-300 KB), which keeps this cheap.
+    The id is a random 128-bit value: knowing the URL is what grants access, so
+    <img> tags can load it without auth headers.
+    """
+
+    __tablename__ = "photos"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    content_type: Mapped[str] = mapped_column(String(32))
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    # NULL = uploaded by the broker.
+    yonke_id: Mapped[int | None] = mapped_column(ForeignKey("yonkes.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Request(Base):
     __tablename__ = "requests"
 
@@ -86,6 +106,11 @@ class Request(Base):
         _str_enum(RequestStatus, "request_status"),
         default=RequestStatus.OPEN,
         index=True,
+    )
+
+    # Picture the customer sent the broker (optional), shown to yonkes.
+    photo_id: Mapped[str | None] = mapped_column(
+        ForeignKey("photos.id", name="fk_requests_photo", ondelete="SET NULL"), nullable=True
     )
 
     # The quote the broker picked ("Elegir esta"). Set together with status=CLOSED;
@@ -116,6 +141,10 @@ class Quote(Base):
     # Mexican pesos. asdecimal=False -> plain floats, JSON-friendly, no SQLite Decimal warning.
     price: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False))
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Picture of the yonke's actual part (optional).
+    photo_id: Mapped[str | None] = mapped_column(
+        ForeignKey("photos.id", name="fk_quotes_photo", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     request: Mapped[Request] = relationship(back_populates="quotes", foreign_keys=[request_id])

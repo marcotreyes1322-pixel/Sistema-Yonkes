@@ -5,36 +5,46 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Yonke · Solicitudes</title>
   <meta name="description" content="Recibe solicitudes de piezas en tiempo real y envía tu cotización.">
-  <meta name="theme-color" content="#ea580c">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141417" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="/shared/icons/recepcion-192.png">
   <link rel="apple-touch-icon" href="/shared/icons/recepcion-180.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Yonke">
   <link rel="stylesheet" href="/shared/styles.css">
 </head>
 <body data-app="recepcion">
   <header class="topbar">
-    <h1 id="title">Solicitudes de piezas</h1>
-    <button id="install" class="ghost" hidden>Instalar</button>
+    <div class="brand">
+      <div class="brand-mark" data-icon="wrench"></div>
+      <div class="brand-text">
+        <div class="brand-title" id="title">Solicitudes de piezas</div>
+        <div class="brand-sub" id="subtitle">Recibe y cotiza al instante</div>
+      </div>
+    </div>
+    <button id="install" class="secondary sm" hidden><span data-icon="download"></span>Instalar</button>
     <span id="status" class="status" data-state="offline">Sin conexión</span>
   </header>
 
-  <!-- 1. Activation: typed once, when the broker installs the app -->
+  <!-- 1. Activation: typed once, when the device is set up -->
   <main id="login" hidden>
     <div class="screen-center">
-      <form id="login-form" class="card stack" style="width: min(420px, 100%)">
-        <h2 style="margin: 0">Activar este dispositivo</h2>
-        <p class="muted" style="margin: 0">Escribe el código de acceso que te compartimos.</p>
+      <form id="login-form" class="card stack" style="width: min(400px, 100%); padding: 28px">
+        <div>
+          <div class="brand-mark" data-icon="key" style="width: 44px; height: 44px; border-radius: 12px; margin-bottom: 16px"></div>
+          <h1 class="card-title" style="font-size: 1.3rem">Activa este dispositivo</h1>
+          <p class="card-sub">Escribe el código de acceso que te compartimos.</p>
+        </div>
         <div>
           <label for="token">Código de acceso</label>
           <input id="token" class="token-input" autocomplete="off" autocapitalize="characters"
                  spellcheck="false" placeholder="XXXX-XXXX-XXXX" required>
         </div>
         <button class="block" type="submit">Entrar</button>
-        <p id="login-error" class="banner danger" hidden></p>
+        <p id="login-error" class="notice danger" hidden></p>
       </form>
     </div>
   </main>
@@ -43,19 +53,22 @@
   <main id="feed" hidden>
     <div id="denied" class="banner danger" hidden></div>
     <div id="expiry" class="banner warn" hidden></div>
-    <div id="alerts-banner" class="banner info row" hidden>
-      <span class="grow">🔔 Activa las alertas para enterarte al instante de cada solicitud nueva.</span>
-      <button id="enable-alerts" class="sm">Activar alertas</button>
+    <div id="alerts-banner" class="banner info" hidden>
+      <span data-icon="bell"></span>
+      <span class="grow">Activa las alertas para enterarte al instante de cada solicitud nueva.</span>
+      <button id="enable-alerts" class="sm">Activar</button>
     </div>
-    <div id="requests"></div>
+
+    <div id="requests" class="list"></div>
+
     <div id="empty" class="empty" hidden>
-      <div class="empty-icon" aria-hidden="true">🔧</div>
+      <div class="empty-icon" data-icon="inbox"></div>
       <strong>Por ahora no hay solicitudes</strong>
       <p>Deja la app abierta: te avisamos en cuanto llegue una nueva.</p>
     </div>
-    <p class="center small muted">
-      <span id="whoami"></span> ·
-      <a href="#" id="logout" class="muted">Cambiar código</a>
+
+    <p class="footer-note">
+      <span id="whoami"></span> · <a href="#" id="logout">Cambiar código</a>
     </p>
   </main>
 

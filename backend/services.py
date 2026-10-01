@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 from .config import APP_TZ
-from .models import Quote, Request, RequestStatus, Yonke, utcnow
+from .models import Photo, Quote, Request, RequestStatus, Yonke, utcnow
 from .schemas import QuoteSubmit, RequestCreate
 
 # No I/O/0/1 so tokens can be read aloud and typed on a phone without mistakes.
@@ -86,6 +86,7 @@ def quote_to_dict(q: Quote, *, include_yonke: bool = True) -> dict:
         "condition": q.condition.value,
         "price": q.price,
         "notes": q.notes,
+        "photo_url": photo_url(q.photo_id),
         "created_at": iso(q.created_at),
     }
     if include_yonke:
@@ -102,17 +103,65 @@ def request_to_dict(r: Request, *, with_quotes: bool = False) -> dict:
         "timestamp": iso(r.timestamp),
         "status": r.status.value,
         "selected_quote_id": r.selected_quote_id,
+        "photo_url": photo_url(r.photo_id),
     }
     if with_quotes:
         d["quotes"] = [quote_to_dict(q) for q in r.quotes]
     return d
 
 
+# --- photos -----------------------------------------------------------------
+
+MAX_PHOTO_BYTES = 4 * 1024 * 1024
+_PHOTO_SIGNATURES = {
+    b"\xff\xd8\xff": "image/jpeg",
+    b"\x89PNG\r\n\x1a\n": "image/png",
+}
+
+
+def photo_url(photo_id: str | None) -> str | None:
+    return f"/photos/{photo_id}" if photo_id else None
+
+
+def sniff_image_type(data: bytes) -> str | None:
+    """Content type from the file's magic bytes; never trust the client's header."""
+    for signature, content_type in _PHOTO_SIGNATURES.items():
+        if data.startswith(signature):
+            return content_type
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def save_photo(db: Session, data: bytes, *, yonke_id: int | None) -> Photo:
+    if not data:
+        raise DomainError("La foto está vacía")
+    if len(data) > MAX_PHOTO_BYTES:
+        raise DomainError("La foto es demasiado grande (máximo 4 MB)")
+    content_type = sniff_image_type(data)
+    if content_type is None:
+        raise DomainError("El archivo no es una imagen JPG, PNG o WebP")
+    photo = Photo(id=secrets.token_hex(16), content_type=content_type, data=data, yonke_id=yonke_id)
+    db.add(photo)
+    db.commit()
+    return photo
+
+
+def _check_photo(db: Session, photo_id: str | None, *, yonke_id: int | None) -> None:
+    """A request/quote may only use a photo its own author uploaded."""
+    if photo_id is None:
+        return
+    photo = db.get(Photo, photo_id)
+    if photo is None or photo.yonke_id != yonke_id:
+        raise DomainError("No encontramos la foto, intenta subirla de nuevo")
+
+
 # --- operations -------------------------------------------------------------
 
 
 def create_request(db: Session, data: RequestCreate) -> Request:
-    req = Request(vehicle_model=data.vehicle_model, part_name=data.part_name)
+    _check_photo(db, data.photo_id, yonke_id=None)
+    req = Request(vehicle_model=data.vehicle_model, part_name=data.part_name, photo_id=data.photo_id)
     db.add(req)
     db.commit()
     return req
@@ -165,6 +214,9 @@ def submit_quote(db: Session, yonke: Yonke, data: QuoteSubmit) -> tuple[Quote, b
     quote.condition = data.condition
     quote.price = data.price
     quote.notes = data.notes or None
+    if "photo_id" in data.model_fields_set:  # omitted = keep the current photo; null = remove it
+        _check_photo(db, data.photo_id, yonke_id=yonke.id)
+        quote.photo_id = data.photo_id
     db.commit()
     db.refresh(quote)
     return quote, created

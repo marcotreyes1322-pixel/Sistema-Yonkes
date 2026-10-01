@@ -9,11 +9,16 @@ import {
   enableAlerts,
   formatDate,
   h,
+  hydrateIcons,
+  icon,
   money,
   notify,
+  photoField,
   registerServiceWorker,
+  setBanner,
   setupInstallButton,
   store,
+  thumb,
   timeAgo,
   toast,
 } from "/shared/live.js";
@@ -30,9 +35,11 @@ const state = {
   deniedMessage: "",
 };
 
+hydrateIcons();
+
 // --- activation -------------------------------------------------------------
 
-// Activation link from the broker: /recepcion/#token=XXXX-XXXX-XXXX
+// Activation link: /recepcion/#token=XXXX-XXXX-XXXX
 const hashToken = new URLSearchParams(location.hash.slice(1)).get("token");
 if (hashToken) {
   store(TOKEN_KEY, hashToken.trim().toUpperCase());
@@ -52,8 +59,7 @@ const socket = new LiveSocket({
       store(TOKEN_KEY, null);
       showLogin(state.deniedMessage || "No reconocimos ese código. Revísalo, o pídenos uno nuevo y con gusto te lo damos.");
     } else {
-      $("denied").textContent = `${state.deniedMessage} Esta pantalla se actualizará sola en cuanto se reactive.`;
-      $("denied").hidden = false;
+      setBanner($("denied"), "pause", `${state.deniedMessage} Esta pantalla se actualizará sola en cuanto se reactive.`);
       clearRequests();
     }
   },
@@ -109,7 +115,8 @@ function handleMessage(msg) {
       state.deniedMessage = "";
       $("denied").hidden = true;
       $("title").textContent = msg.yonke.name;
-      $("whoami").textContent = `${msg.yonke.name} · pagado hasta el ${formatDate(msg.yonke.payment_due_date)}`;
+      $("subtitle").textContent = "Solicitudes de piezas";
+      $("whoami").textContent = `Suscripción activa hasta el ${formatDate(msg.yonke.payment_due_date)}`;
       renderExpiry(msg.yonke.payment_due_date);
       clearRequests();
       // Server sends newest first; insert oldest first so newest ends on top.
@@ -119,7 +126,7 @@ function handleMessage(msg) {
     case "request.won":
       upsertRequest(msg.request, { fresh: true });
       beep(4);
-      notify("¡Buenas noticias! 🎉", `Seleccionamos tu ${msg.request.part_name} (${msg.request.vehicle_model}). Por favor apártala.`, {
+      notify("¡Buenas noticias!", `Seleccionamos tu ${msg.request.part_name} (${msg.request.vehicle_model}). Por favor apártala.`, {
         tag: `won-${msg.request.id}`,
       });
       break;
@@ -159,12 +166,15 @@ function handleMessage(msg) {
 
 function renderExpiry(dueDate) {
   const days = daysUntil(dueDate);
-  const banner = $("expiry");
-  banner.hidden = days > 5;
-  banner.textContent =
-    days === 0
-      ? "Tu suscripción vence hoy. Renuévala para seguir recibiendo solicitudes sin interrupción."
-      : `Tu suscripción vence en ${days} día${days === 1 ? "" : "s"} (${formatDate(dueDate)}). Recuerda renovarla para no perderte ninguna solicitud.`;
+  setBanner(
+    $("expiry"),
+    "clock",
+    days > 5
+      ? ""
+      : days === 0
+        ? "Tu suscripción vence hoy. Renuévala para seguir recibiendo solicitudes sin interrupción."
+        : `Tu suscripción vence en ${days} día${days === 1 ? "" : "s"} (${formatDate(dueDate)}). Recuerda renovarla para no perderte ninguna solicitud.`,
+  );
 }
 
 // --- request cards ----------------------------------------------------------
@@ -176,7 +186,7 @@ function upsertRequest(req, { fresh = false } = {}) {
   const card = renderCard(req);
   if (!existing) $("requests").prepend(card);
   if (fresh) {
-    card.classList.add("fresh", "arrive"); // "arrive" animates once; "fresh" keeps the border a while
+    card.classList.add("fresh", "arrive"); // "arrive" animates once; "fresh" keeps the highlight a while
     setTimeout(() => state.cards.get(req.id)?.classList.remove("fresh"), 8000);
   }
   updateEmpty();
@@ -189,7 +199,7 @@ function removeRequest(id) {
   state.editing.delete(id);
   if (card) {
     card.classList.add("leaving");
-    setTimeout(() => card.remove(), 400);
+    setTimeout(() => card.remove(), 350);
   }
   updateEmpty();
 }
@@ -205,7 +215,7 @@ function showRequestCovered(id) {
   const card = h(
     "article.card.gone",
     { role: "status" },
-    h("div.gone-icon", { "aria-hidden": "true" }, "✓"),
+    h("div.gone-icon", icon("check", 18)),
     h(
       "div.grow",
       h("div.gone-title", "Solicitud cubierta"),
@@ -217,7 +227,7 @@ function showRequestCovered(id) {
   updateEmpty();
   setTimeout(() => {
     card.classList.add("leaving");
-    setTimeout(() => card.remove(), 400);
+    setTimeout(() => card.remove(), 350);
   }, 10000);
 }
 
@@ -249,12 +259,16 @@ function renderCard(req) {
     h(
       "header.req-head",
       h(
-        "div.grow",
-        h("span.badge.new.only-fresh", "Nueva"),
+        "div.req-main",
+        h("div.req-top", h("span.badge.solid.only-fresh", "Nueva")),
         h("h2.req-title", req.part_name),
-        h("p.req-vehicle", h("span.chip", "🚗 ", req.vehicle_model)),
+        h(
+          "div.req-meta",
+          h("span.meta", icon("car", 16), req.vehicle_model),
+          h("span.meta", icon("clock", 15), h("span", { dataset: { ts: req.timestamp } }, timeAgo(req.timestamp))),
+        ),
       ),
-      h("span.req-time", { dataset: { ts: req.timestamp } }, timeAgo(req.timestamp)),
+      thumb(req.photo_url),
     ),
     h(
       "div.req-body",
@@ -271,26 +285,35 @@ function renderCard(req) {
   return card;
 }
 
+const conditionBadge = (c) => h(`span.badge.${c === "good" ? "ok" : c === "regular" ? "warn" : "danger"}`, CONDITIONS[c]);
+
+function quoteSummary(q, trailing) {
+  return h(
+    "div.quote-summary",
+    thumb(q.photo_url),
+    h(
+      "div.grow",
+      h("div.small.muted", "Tu cotización"),
+      h("div.row", { style: "gap: 8px" }, h("span.amount", money(q.price)), conditionBadge(q.condition)),
+      q.notes && h("div.small.muted", { style: "margin-top: 2px" }, q.notes),
+    ),
+    trailing,
+  );
+}
+
 function wonView(req) {
-  const q = req.my_quote;
   return h(
     "div.stack",
     h(
-      "div.won-msg",
-      h("div.won-icon", { "aria-hidden": "true" }, "🎉"),
+      "div.notice.ok",
+      icon("checkCircle", 20),
       h(
-        "div",
+        "div.grow",
         h("strong", "¡Buenas noticias!"),
-        h("div", "Seleccionamos tu cotización. Por favor aparta la pieza; en breve te contactamos para coordinar la entrega."),
+        "Seleccionamos tu cotización. Por favor aparta la pieza; en breve te contactamos para coordinar la entrega.",
       ),
     ),
-    q &&
-      h(
-        "div.won-quote",
-        h("span.muted", "Tu cotización"),
-        h("strong", money(q.price)),
-        h("span", `${CONDITIONS[q.condition]}${q.notes ? ` · ${q.notes}` : ""}`),
-      ),
+    req.my_quote && quoteSummary(req.my_quote),
     h(
       "button.secondary.block",
       {
@@ -301,20 +324,15 @@ function wonView(req) {
           removeRequest(req.id);
         },
       },
+      icon("check"),
       "Listo, ya la aparté",
     ),
   );
 }
 
 function myQuoteView(req) {
-  const q = req.my_quote;
-  return h(
-    "div.my-quote.row",
-    h(
-      "div.grow",
-      h("strong", `Cotizaste ${money(q.price)}`),
-      h("div.small", `Estado: ${CONDITIONS[q.condition]}${q.notes ? ` · ${q.notes}` : ""}`),
-    ),
+  return quoteSummary(
+    req.my_quote,
     h(
       "button.secondary.sm",
       {
@@ -324,6 +342,7 @@ function myQuoteView(req) {
           renderCard(req);
         },
       },
+      icon("pencil", 15),
       "Editar",
     ),
   );
@@ -332,15 +351,16 @@ function myQuoteView(req) {
 function quoteForm(req) {
   const q = req.my_quote;
   const name = `cond-${req.id}`;
+  const photo = photoField({ getToken: () => store(TOKEN_KEY), url: q?.photo_url, label: "Agregar foto de la pieza" });
   const form = h(
     "form.stack",
     { novalidate: true },
     h(
       "div",
-      h("label", "Estado de la pieza"),
+      h("span.label", "Estado de la pieza"),
       h(
         "div.segmented",
-        { role: "radiogroup" },
+        { role: "radiogroup", "aria-label": "Estado de la pieza" },
         Object.entries(CONDITIONS).map(([value, text]) => [
           h("input", { type: "radio", name, value, id: `${name}-${value}`, checked: q?.condition === value }),
           h("label", { for: `${name}-${value}` }, text),
@@ -349,30 +369,35 @@ function quoteForm(req) {
     ),
     h(
       "div",
-      h("label", { for: `price-${req.id}` }, "Precio (MXN)"),
-      h("input", {
-        id: `price-${req.id}`,
-        name: "price",
-        type: "number",
-        inputmode: "decimal",
-        min: "1",
-        step: "any",
-        placeholder: "$0",
-        value: q ? q.price : "",
-      }),
+      h("label", { for: `price-${req.id}` }, "Precio"),
+      h(
+        "div.input-prefix",
+        h("span", "$"),
+        h("input", {
+          id: `price-${req.id}`,
+          name: "price",
+          type: "number",
+          inputmode: "decimal",
+          min: "1",
+          step: "any",
+          placeholder: "0.00",
+          value: q ? q.price : "",
+        }),
+      ),
     ),
     h(
       "div",
-      h("label", { for: `notes-${req.id}` }, "Notas (opcional)"),
+      h("label", { for: `notes-${req.id}` }, "Notas ", h("span.muted", { style: "font-weight: 400" }, "(opcional)")),
       h("textarea", {
         id: `notes-${req.id}`,
         name: "notes",
         maxlength: "500",
         rows: 2,
-        placeholder: "Ej. lado izquierdo, con arnés, garantía 30 días…",
+        placeholder: "Ej. lado izquierdo, con arnés, garantía de 30 días…",
         value: q?.notes || "",
       }),
     ),
+    h("div", h("span.label", "Foto ", h("span.muted", { style: "font-weight: 400" }, "(opcional)")), photo.el),
     h(
       "div.row",
       q &&
@@ -387,7 +412,7 @@ function quoteForm(req) {
           },
           "Cancelar",
         ),
-      h("button.grow", { type: "submit" }, q ? "Actualizar cotización" : "Enviar cotización"),
+      h("button.grow", { type: "submit" }, icon("send", 17), q ? "Actualizar cotización" : "Enviar cotización"),
     ),
   );
 
@@ -400,13 +425,11 @@ function quoteForm(req) {
     const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
-      await socket.request("quote.submit", {
-        request_id: req.id,
-        condition,
-        price,
-        notes: form.elements.notes.value.trim() || null,
-      });
-      toast("¡Gracias! Tu cotización fue enviada ✔", "ok");
+      await photo.ready(); // a photo still uploading is included once it finishes
+      const payload = { request_id: req.id, condition, price, notes: form.elements.notes.value.trim() || null };
+      if (photo.value() !== undefined) payload.photo_id = photo.value(); // omitted = keep current photo
+      await socket.request("quote.submit", payload);
+      toast("¡Gracias! Tu cotización fue enviada", "ok");
     } catch (err) {
       toast(err.message, "error");
       button.disabled = false;

@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Intermediario · Panel</title>
   <meta name="description" content="Envía solicitudes de piezas a los yonkes y administra suscripciones.">
-  <meta name="theme-color" content="#1d4ed8">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141417" media="(prefers-color-scheme: dark)">
   <meta name="robots" content="noindex, nofollow">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="/shared/icons/intermedio-192.png">
@@ -17,113 +18,135 @@
 </head>
 <body data-app="intermedio">
   <header class="topbar">
-    <h1>Panel del intermediario</h1>
-    <button id="install" class="ghost" hidden>Instalar</button>
-    <span id="online-count" class="status" data-state="offline" title="Yonkes conectados">0 yonkes</span>
+    <div class="brand">
+      <div class="brand-mark" data-icon="send"></div>
+      <div class="brand-text">
+        <div class="brand-title">Panel del intermediario</div>
+        <div class="brand-sub" id="online-count">0 yonkes en línea</div>
+      </div>
+    </div>
+    <button id="install" class="secondary sm" hidden><span data-icon="download"></span>Instalar</button>
     <span id="status" class="status" data-state="offline">Sin conexión</span>
   </header>
 
   <main id="login" hidden>
     <div class="screen-center">
-      <form id="login-form" class="card stack" style="width: min(420px, 100%)">
-        <h2 style="margin: 0">Acceso del intermediario</h2>
+      <form id="login-form" class="card stack" style="width: min(400px, 100%); padding: 28px">
         <div>
-          <label for="token">Contraseña del intermediario</label>
-          <div class="row" style="flex-wrap: nowrap">
+          <div class="brand-mark" data-icon="key" style="width: 44px; height: 44px; border-radius: 12px; margin-bottom: 16px"></div>
+          <h1 class="card-title" style="font-size: 1.3rem">Bienvenido</h1>
+          <p class="card-sub">Entra con tu contraseña de intermediario.</p>
+        </div>
+        <div>
+          <label for="token">Contraseña</label>
+          <div class="row" style="flex-wrap: nowrap; gap: 8px">
             <input id="token" class="grow" type="password" autocomplete="current-password" required
                    autocapitalize="none" autocorrect="off" spellcheck="false">
             <button type="button" id="toggle-token" class="secondary" aria-label="Mostrar contraseña">Ver</button>
           </div>
-          <p class="small muted" style="margin: 6px 0 0">Distingue mayúsculas y minúsculas.</p>
+          <p class="hint">Distingue mayúsculas y minúsculas.</p>
         </div>
         <button class="block" type="submit">Entrar</button>
-        <p id="login-error" class="banner danger" hidden></p>
+        <p id="login-error" class="notice danger" hidden></p>
       </form>
     </div>
   </main>
 
   <main id="panel" hidden>
     <nav class="tabs" role="tablist">
-      <button role="tab" id="tab-requests" aria-selected="true">Solicitudes</button>
-      <button role="tab" id="tab-yonkes" aria-selected="false">Yonkes</button>
+      <button role="tab" id="tab-requests" aria-selected="true">Solicitudes <span class="count" id="count-requests"></span></button>
+      <button role="tab" id="tab-yonkes" aria-selected="false">Yonkes <span class="count" id="count-yonkes"></span></button>
     </nav>
 
     <!-- Requests: broadcast + live quotes -->
     <section id="view-requests">
       <form id="request-form" class="card stack">
-        <h2 style="margin: 0">Nueva solicitud</h2>
-        <div class="row">
-          <div class="grow" style="min-width: 200px">
+        <div>
+          <h2 class="card-title">Nueva solicitud</h2>
+          <p class="card-sub">Llega al instante a todos los yonkes con suscripción activa.</p>
+        </div>
+        <div class="grid-2">
+          <div>
             <label for="part_name">Pieza</label>
             <input id="part_name" name="part_name" required minlength="2" maxlength="160"
                    placeholder="Ej. Alternador" autocomplete="off">
           </div>
-          <div class="grow" style="min-width: 200px">
+          <div>
             <label for="vehicle_model">Vehículo</label>
             <input id="vehicle_model" name="vehicle_model" required minlength="2" maxlength="120"
                    placeholder="Ej. Nissan Tsuru 2012" autocomplete="off">
           </div>
         </div>
-        <button type="submit" class="block">Enviar a todos los yonkes</button>
+        <div>
+          <span class="label">Foto <span class="muted" style="font-weight: 400">(opcional, ayuda a identificar la pieza)</span></span>
+          <div id="request-photo"></div>
+        </div>
+        <button type="submit" class="block"><span data-icon="send"></span>Enviar a los yonkes</button>
       </form>
 
-      <div class="row" style="margin: 16px 0 8px">
-        <h2 class="grow" style="margin: 0; font-size: 1.1rem">Solicitudes</h2>
-        <label class="row small" style="margin: 0; font-weight: 500">
-          <input type="checkbox" id="show-closed" style="width: auto; min-height: 0"> Mostrar cerradas
+      <div class="section-head">
+        <span class="section-title">Solicitudes</span>
+        <label class="row small" style="margin: 0; gap: 8px; font-weight: 500; color: var(--muted)">
+          <input type="checkbox" id="show-closed"> Mostrar cerradas
         </label>
       </div>
-      <div id="requests"></div>
-      <p id="requests-empty" class="empty" hidden>Aún no hay solicitudes.</p>
+      <div id="requests" class="list"></div>
+      <div id="requests-empty" class="empty" hidden>
+        <div class="empty-icon" data-icon="inbox"></div>
+        <strong>Aún no hay solicitudes</strong>
+        <p>Crea la primera arriba: los yonkes la verán al instante.</p>
+      </div>
     </section>
 
     <!-- Yonkes: subscriptions and access codes -->
     <section id="view-yonkes" hidden>
       <form id="yonke-form" class="card stack">
-        <h2 style="margin: 0">Registrar yonke</h2>
-        <div class="row">
-          <div class="grow" style="min-width: 180px">
+        <div>
+          <h2 class="card-title">Registrar yonke</h2>
+          <p class="card-sub">Genera su código de acceso para activar la app en su teléfono.</p>
+        </div>
+        <div class="grid-2">
+          <div>
             <label for="y-name">Nombre</label>
-            <input id="y-name" name="name" required maxlength="120" autocomplete="off">
+            <input id="y-name" name="name" required maxlength="120" autocomplete="off" placeholder="Ej. Yonke El Güero">
           </div>
-          <div class="grow" style="min-width: 160px">
+          <div>
             <label for="y-phone">Teléfono / WhatsApp</label>
-            <input id="y-phone" name="phone" type="tel" required minlength="7" maxlength="30">
-          </div>
-          <div style="width: 120px">
-            <label for="y-months">Meses pagados</label>
-            <input id="y-months" name="months" type="number" min="1" max="24" value="1" required>
+            <input id="y-phone" name="phone" type="tel" required minlength="7" maxlength="30" placeholder="10 dígitos">
           </div>
         </div>
-        <button type="submit" class="block">Registrar y generar código</button>
+        <div style="max-width: 200px">
+          <label for="y-months">Meses pagados</label>
+          <input id="y-months" name="months" type="number" min="1" max="24" value="1" required>
+        </div>
+        <button type="submit" class="block"><span data-icon="plus"></span>Registrar y generar código</button>
       </form>
 
-      <table class="responsive card" style="padding: 8px">
-        <thead>
-          <tr><th></th><th>Yonke</th><th>Teléfono</th><th>Suscripción</th><th>Pagado hasta</th><th></th></tr>
-        </thead>
-        <tbody id="yonkes"></tbody>
-      </table>
-      <p id="yonkes-empty" class="empty" hidden>Registra tu primer yonke.</p>
+      <div class="section-head"><span class="section-title">Yonkes registrados</span></div>
+      <div id="yonkes" class="card" style="padding: 0"></div>
+      <div id="yonkes-empty" class="empty" hidden>
+        <div class="empty-icon" data-icon="users"></div>
+        <strong>Aún no hay yonkes</strong>
+        <p>Registra el primero para generar su código de acceso.</p>
+      </div>
     </section>
   </main>
 
   <!-- Shown once after creating a yonke or regenerating its code -->
   <dialog id="credentials">
     <div class="stack">
-      <h2 style="margin: 0" id="cred-title">Código de acceso</h2>
-      <p class="muted" style="margin: 0">
-        Anótalo o ábrelo en el dispositivo del yonke. <strong>No se volverá a mostrar</strong>
-        (puedes generar otro si se pierde).
-      </p>
+      <div>
+        <h2 class="card-title" id="cred-title">Código de acceso</h2>
+        <p class="card-sub">Ábrelo en el dispositivo del yonke. Por seguridad <strong>no se volverá a mostrar</strong>; si se pierde, genera otro.</p>
+      </div>
       <div class="token-big" id="cred-token"></div>
       <div>
-        <label>Enlace de activación (ábrelo en el teléfono del yonke)</label>
+        <label for="cred-link">Enlace de activación</label>
         <input id="cred-link" readonly>
       </div>
-      <div class="row">
-        <button type="button" class="secondary grow" id="cred-copy">Copiar enlace</button>
-        <a class="btn secondary grow" id="cred-whatsapp" target="_blank" rel="noopener">Enviar por WhatsApp</a>
+      <div class="grid-2">
+        <button type="button" class="secondary" id="cred-copy"><span data-icon="copy"></span>Copiar enlace</button>
+        <a class="btn secondary" id="cred-whatsapp" target="_blank" rel="noopener"><span data-icon="message"></span>WhatsApp</a>
       </div>
       <button type="button" class="block" id="cred-close">Listo</button>
     </div>

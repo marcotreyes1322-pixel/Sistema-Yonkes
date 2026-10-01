@@ -46,14 +46,21 @@ def migrate(conn: Connection) -> None:
 
     Idempotent: each step checks the current schema first. Works on SQLite and PostgreSQL.
     """
-    columns = {c["name"] for c in inspect(conn).get_columns("requests")}
-    if "selected_quote_id" not in columns:
-        conn.execute(
-            text(
-                "ALTER TABLE requests ADD COLUMN selected_quote_id INTEGER "
-                "CONSTRAINT fk_requests_selected_quote REFERENCES quotes(id) ON DELETE SET NULL"
-            )
-        )
+    added_columns = [
+        # (table, column, definition)
+        (
+            "requests",
+            "selected_quote_id",
+            "INTEGER CONSTRAINT fk_requests_selected_quote REFERENCES quotes(id) ON DELETE SET NULL",
+        ),
+        ("requests", "photo_id", "VARCHAR(32) CONSTRAINT fk_requests_photo REFERENCES photos(id) ON DELETE SET NULL"),
+        ("quotes", "photo_id", "VARCHAR(32) CONSTRAINT fk_quotes_photo REFERENCES photos(id) ON DELETE SET NULL"),
+    ]
+    inspector = inspect(conn)
+    existing = {table: {c["name"] for c in inspector.get_columns(table)} for table in {t for t, _, _ in added_columns}}
+    for table, column, definition in added_columns:
+        if column not in existing[table]:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
 
 
 def init_db() -> None:

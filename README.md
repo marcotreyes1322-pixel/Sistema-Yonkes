@@ -129,7 +129,7 @@ respuesta o error.
 | ← | `request.new` | `request` |
 | ← | `request.closed` | `request_id`, `reason`: `selected` (se consiguió con otro yonke: ya no buscarla) o `closed` |
 | ← | `request.won` | `request` con `won: true` y `my_quote`: el intermediario eligió **su** pieza, que la aparte |
-| → | `quote.submit` | `request_id`, `condition` (`good`/`regular`/`bad`), `price`, `notes?` |
+| → | `quote.submit` | `request_id`, `condition` (`good`/`regular`/`bad`), `price`, `notes?`, `photo_id?` (omitido = conservar, `null` = quitar) |
 | ← | `quote.saved` | `quote` (se reenvía a todos los dispositivos del yonke) |
 | ← | `access_denied` | `reason` (`token`/`subscription`), `message` — antes de cerrar |
 
@@ -141,7 +141,7 @@ cotizar la misma solicitud actualiza su cotización (una por yonke por solicitud
 | Dirección | `type` | Contenido |
 |---|---|---|
 | ← | `hello` | `requests` (con `quotes`), `yonkes`, `online` |
-| → | `request.create` | `vehicle_model`, `part_name` |
+| → | `request.create` | `vehicle_model`, `part_name`, `photo_id?` |
 | ← | `request.created` | `request`, `delivered_to` (yonkes que la recibieron) |
 | → | `request.close` | `request_id` |
 | → | `request.select` | `request_id`, `quote_id`: elige la cotización ganadora y cierra la solicitud |
@@ -163,10 +163,16 @@ Todas requieren `Authorization: Bearer <BROKER_TOKEN>`. Documentación interacti
 | POST | `/api/yonkes/{id}/token` | Generar código nuevo (revoca el anterior) |
 | GET | `/api/requests?status=open` | Historial con cotizaciones |
 | POST | `/api/requests` | Crear y transmitir (igual que por WebSocket; útil para bots) |
+| POST | `/api/photos` | Subir foto (cuerpo = imagen; también con el código de un yonke) → `{id, url}` |
 | POST | `/api/requests/{id}/select` | Elegir cotización ganadora (`quote_id`): avisa al ganador y libera a los demás |
 | POST | `/api/requests/{id}/close` | Cerrar solicitud sin ganador |
 
 ## Decisiones de diseño
+
+- **Fotos**: el teléfono las reduce a máx. 1440 px en JPEG antes de subirlas (~150-300 KB) y se
+  guardan en la base de datos (tabla `photos`), porque el disco de Render se borra en cada deploy.
+  Se sirven en `/photos/{id}` con un id aleatorio de 128 bits: conocer la URL es lo que da acceso,
+  así las etiquetas `<img>` funcionan sin encabezados. Solo el autor de una foto puede adjuntarla.
 
 - **Códigos de acceso** de 12 caracteres sin letras ambiguas (sin `I`, `O`, `0`, `1`),
   fáciles de dictar. En la base solo se guarda su hash SHA-256.
